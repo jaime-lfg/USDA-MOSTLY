@@ -3,55 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>USDA FOB Produce Prices</title>
+  <title>USDA FOB — Mostly Avg</title>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 
   <style>
-    body {
-      margin: 0;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-      background: #0d1117;
-      color: #f0f6fc;
-    }
-    .container {
-      max-width: 1200px;
-      margin: auto;
-      padding: 20px;
-    }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #30363d;
-      padding-bottom: 16px;
-      margin-bottom: 24px;
-    }
-    h1 { margin: 0; font-size: 1.4rem; }
-    .price { font-size: 2.8rem; font-weight: 700; }
-    .change.up { color: #3fb950; }
-    .change.down { color: #f85149; }
-    .change.flat { color: #8b949e; }
-    .meta {
-      color: #8b949e;
-      font-size: 0.85rem;
-      margin-top: 6px;
-    }
-    .chart-wrap {
-      height: 420px;
-      background: #161b22;
-      border: 1px solid #30363d;
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .debug {
-      margin-top: 12px;
-      font-size: 12px;
-      color: #8b949e;
-      word-break: break-word;
-      white-space: pre-wrap;
-    }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:#0d1117; color:#f0f6fc; }
+    .container { max-width:1200px; margin:auto; padding:20px; }
+    header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #30363d; padding-bottom:16px; margin-bottom:24px; }
+    h1 { margin:0; font-size:1.4rem; }
+    .price { font-size:2.8rem; font-weight:700; }
+    .change.up { color:#3fb950; }
+    .change.down { color:#f85149; }
+    .change.flat { color:#8b949e; }
+    .meta { color:#8b949e; font-size:.85rem; margin-top:6px; }
+    .chart-wrap { height:420px; background:#161b22; border:1px solid #30363d; border-radius:12px; padding:16px; }
+    .debug { margin-top:12px; font-size:12px; color:#8b949e; white-space:pre-wrap; }
   </style>
 </head>
 
@@ -77,14 +45,14 @@
 
 <script>
 /* =========================
-   CONFIG — EDIT IF NEEDED
+   CONFIG
    ========================= */
 const SHEET_ID = '1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY';
-const HISTORY_GID = 1273956115; // the tab you want (History / Price History)
 
-// Fallback positions if headers can't be detected (A=Date, G=Mostly Avg)
-const FALLBACK_DATE_COL_INDEX = 0; // column A
-const FALLBACK_AVG_COL_INDEX  = 6; // column G
+// ✅ IMPORTANT: set this to the tab that actually contains rows
+// Your earlier “backend” link uses gid=1915657295 — that’s likely the real one.
+const HISTORY_GID = 1915657295;
+
 /* ========================= */
 
 let chart = null;
@@ -95,7 +63,6 @@ function debug(msg) {
 }
 
 function gvizUrl(cb) {
-  // headers=1 nudges GViz to treat first row as headers (often fixes blank labels)
   return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${HISTORY_GID}&headers=1&tqx=out:json;responseHandler:${cb}&cachebust=${Date.now()}`;
 }
 
@@ -103,10 +70,7 @@ function loadGViz() {
   return new Promise((resolve, reject) => {
     const cb = `gviz_cb_${Math.random().toString(16).slice(2)}`;
 
-    window[cb] = (resp) => {
-      cleanup();
-      resolve(resp);
-    };
+    window[cb] = (resp) => { cleanup(); resolve(resp); };
 
     function cleanup() {
       try { delete window[cb]; } catch {}
@@ -117,15 +81,9 @@ function loadGViz() {
     const script = document.createElement('script');
     script.src = gvizUrl(cb);
     script.async = true;
-    script.onerror = () => {
-      cleanup();
-      reject(new Error('GViz load failed (sheet not shared "Anyone with the link") or bad gid'));
-    };
+    script.onerror = () => { cleanup(); reject(new Error('GViz load failed (sheet not shared "Anyone with the link"?)')); };
 
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('GViz timeout'));
-    }, 12000);
+    const timeout = setTimeout(() => { cleanup(); reject(new Error('GViz timeout')); }, 12000);
 
     document.head.appendChild(script);
   });
@@ -133,84 +91,42 @@ function loadGViz() {
 
 function normalizeDate(v) {
   if (!v) return null;
-
-  // GViz sometimes returns Date objects, sometimes strings
   if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
     return v.toISOString().slice(0,10);
   }
-
   const s = String(v).trim();
   if (!s) return null;
-
-  // common: 1/3/2026
   if (s.includes('/')) {
-    const parts = s.split('/');
-    if (parts.length >= 3) {
-      const m = parts[0].padStart(2,'0');
-      const d = parts[1].padStart(2,'0');
-      let y = parts[2];
-      if (y.length === 2) y = '20' + y;
-      return `${y}-${m}-${d}`;
-    }
+    const [m,d,y] = s.split('/');
+    if (m && d && y) return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   }
-
-  // ISO already
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
   const dt = new Date(s);
   if (!isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
-
   return null;
 }
 
-function normHeader(h) {
-  // normalize: lower, remove spaces, underscores, hyphens
-  return String(h || '')
-    .toLowerCase()
-    .trim()
-    .replace(/[\s_\-]+/g, '');
-}
-
-function findColumnIndex(cols, candidates) {
-  const normalizedCols = cols.map(c => normHeader(c));
-  for (const cand of candidates) {
-    const i = normalizedCols.indexOf(normHeader(cand));
-    if (i !== -1) return i;
-  }
-  return -1;
-}
-
 function parseGViz(resp) {
-  const table = resp && resp.table;
+  const table = resp?.table;
   if (!table) throw new Error('No table in GViz response');
 
-  const colsRaw = (table.cols || []).map(c => c.label || c.id || '');
+  const cols = (table.cols || []).map(c => c.label || c.id || '');
   const rows = table.rows || [];
 
-  // Print what GViz thinks the columns are
-  const colsDebug = colsRaw.map((c,i)=>`[${i}] "${c}"`).join('  ');
-  debug(
-`GViz response ✅
-Columns: ${colsDebug}
-Row count: ${rows.length}
-Trying to locate Date + Mostly Avg…`
-  );
+  const colsDebug = cols.map((c,i)=>`[${i}] "${c}"`).join('  ');
+  debug(`GViz response ✅\nGID: ${HISTORY_GID}\nColumns: ${colsDebug}\nRow count: ${rows.length}`);
 
-  // Try multiple header name variants
-  let iDate = findColumnIndex(colsRaw, ['date', 'reportdate', 'pricedate']);
-  let iAvg  = findColumnIndex(colsRaw, ['mostlyavg', 'mostly avg', 'mostlyaverage', 'mostly average', 'avg', 'mostly']);
+  // Find indices by label (your tab uses these exact labels)
+  const idx = (name) => cols.findIndex(c => String(c).trim().toLowerCase() === name);
 
-  // If headers are blank/missing, fallback to fixed positions
-  if (iDate === -1) iDate = FALLBACK_DATE_COL_INDEX;
-  if (iAvg  === -1) iAvg  = FALLBACK_AVG_COL_INDEX;
+  const iDate = idx('date');
+  const iAvg  = idx('mostly avg');
 
-  // Validate indices are in range
-  if (iDate < 0 || iDate >= colsRaw.length || iAvg < 0 || iAvg >= colsRaw.length) {
-    throw new Error(`Could not determine columns. cols=${colsRaw.length}, dateIdx=${iDate}, avgIdx=${iAvg}`);
+  if (iDate === -1 || iAvg === -1) {
+    throw new Error('Required columns missing (Date, Mostly Avg)');
   }
 
   const data = [];
-
   for (const r of rows) {
     const cells = r.c || [];
     const dateVal = cells[iDate]?.v ?? cells[iDate]?.f ?? '';
@@ -219,23 +135,13 @@ Trying to locate Date + Mostly Avg…`
     const date = normalizeDate(dateVal);
     const avg = Number(avgVal);
 
-    if (date && Number.isFinite(avg) && avg > 0) {
-      data.push({ date, avg });
-    }
+    if (date && Number.isFinite(avg) && avg > 0) data.push({ date, avg });
   }
 
   data.sort((a,b) => new Date(a.date) - new Date(b.date));
 
-  // More debug so we can see if we're grabbing the wrong columns
   const sample = data.slice(-3).map(d => `${d.date}=$${d.avg}`).join(', ') || '(none)';
-  debug(
-`GViz response ✅
-Columns: ${colsDebug}
-Using Date col index: ${iDate}
-Using Avg col index:  ${iAvg}
-Parsed rows: ${data.length}
-Sample: ${sample}`
-  );
+  debug(`GViz response ✅\nGID: ${HISTORY_GID}\nColumns: ${colsDebug}\nParsed rows: ${data.length}\nSample: ${sample}`);
 
   return data;
 }
@@ -244,7 +150,7 @@ function render(data) {
   if (!data.length) {
     document.getElementById('currentPrice').textContent = '—';
     document.getElementById('priceChange').textContent = '—';
-    document.getElementById('priceMeta').textContent = 'No rows parsed (wrong columns or no published rows yet)';
+    document.getElementById('priceMeta').textContent = 'No rows parsed (wrong gid or tab is empty)';
     return;
   }
 
@@ -260,17 +166,14 @@ function render(data) {
   } else {
     const diff = latest.avg - prev.avg;
     const pct = (diff / prev.avg) * 100;
-
     changeEl.className = `change ${diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat'}`;
-    changeEl.textContent =
-      `${diff > 0 ? '↑' : diff < 0 ? '↓' : '→'} $${Math.abs(diff).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)`;
+    changeEl.textContent = `${diff > 0 ? '↑' : diff < 0 ? '↓' : '→'} $${Math.abs(diff).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)`;
   }
 
   document.getElementById('priceMeta').textContent =
     `Updated ${new Date(latest.date).toLocaleDateString('en-US', {year:'numeric', month:'short', day:'numeric'})}`;
 
-  document.getElementById('lastSync').textContent =
-    `Last sync: ${new Date().toLocaleString()}`;
+  document.getElementById('lastSync').textContent = `Last sync: ${new Date().toLocaleString()}`;
 
   if (chart) chart.destroy();
 
@@ -292,17 +195,14 @@ function render(data) {
       plugins: { legend: { display: false } },
       scales: {
         x: { type: 'time' },
-        y: {
-          position: 'right',
-          ticks: { callback: v => '$' + v }
-        }
+        y: { position: 'right', ticks: { callback: v => '$' + v } }
       }
     }
   });
 }
 
 async function init() {
-  debug('Loading History via GViz…');
+  debug(`Loading History via GViz… gid=${HISTORY_GID}`);
   try {
     const resp = await loadGViz();
     const data = parseGViz(resp);
@@ -314,6 +214,5 @@ async function init() {
 
 init();
 </script>
-
 </body>
 </html>
