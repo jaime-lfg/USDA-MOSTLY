@@ -117,6 +117,10 @@
             font-weight: 700;
             letter-spacing: -2px;
         }
+        .price-value.no-data {
+            font-size: 1.8rem;
+            color: var(--text-muted);
+        }
         .price-change {
             display: inline-flex;
             align-items: center;
@@ -364,6 +368,7 @@
         let state = { commodity: 'iceberg', region: 'auto', days: 60, data: {} };
         let mainChart = null;
         let sparkCharts = {};
+        
         function getCurrentSeason() {
             const month = new Date().getMonth() + 1;
             if ([11, 12, 1, 2, 3].includes(month)) {
@@ -371,51 +376,17 @@
             }
             return { region: 'salinas', label: 'Summer Season • Salinas' };
         }
+        
         function getActiveRegion() {
             return state.region === 'auto' ? getCurrentSeason().region : state.region;
         }
-        function generateSampleData() {
-            const data = {};
-            const today = new Date();
-            Object.keys(COMMODITIES).forEach(commodity => {
-                data[commodity] = {};
-                Object.keys(REGIONS).forEach(region => {
-                    const prices = [];
-                    let basePrice = { iceberg: 24, romaine: 28, hearts: 32, broccoli: 22, cauliflower: 18, celery: 20 }[commodity];
-                    if (region === 'yuma') basePrice *= 0.95;
-                    if (region === 'santa-maria') basePrice *= 1.02;
-                    let price = basePrice;
-                    for (let i = 400; i >= 0; i--) {
-                        const date = new Date(today);
-                        date.setDate(date.getDate() - i);
-                        if (date.getDay() === 0 || date.getDay() === 6) continue;
-                        const month = date.getMonth();
-                        let seasonalFactor = 1;
-                        if ([11, 0, 1].includes(month)) seasonalFactor = 1.15;
-                        if ([6, 7].includes(month)) seasonalFactor = 0.9;
-                        const noise = (Math.random() - 0.5) * 2.5;
-                        const reversion = (basePrice * seasonalFactor - price) * 0.08;
-                        price = Math.max(10, price + noise + reversion);
-                        const spread = 1.5 + Math.random() * 2;
-                        prices.push({
-                            date: date.toISOString().split('T')[0],
-                            low: Math.round((price - spread) * 100) / 100,
-                            high: Math.round((price + spread) * 100) / 100,
-                            avg: Math.round(price * 100) / 100,
-                            demand: ['Light', 'Moderate', 'Good', 'Fairly Good'][Math.floor(Math.random() * 4)],
-                            trend: ['Lower', 'Steady', 'Higher', 'About Steady'][Math.floor(Math.random() * 4)]
-                        });
-                    }
-                    data[commodity][region] = prices;
-                });
-            });
-            return data;
-        }
-       const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
+        
+        const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
+        
         async function fetchData() {
             if (!SHEET_CSV_URL) {
-                console.log('Using sample data');
-                return generateSampleData();
+                console.log('No sheet URL configured');
+                return {};
             }
             try {
                 const jsonUrl = SHEET_CSV_URL.replace('/pub?', '/gviz/tq?tqx=out:json&').replace('&output=csv', '');
@@ -426,26 +397,32 @@
                     const json = JSON.parse(jsonMatch[1]);
                     return parseGoogleJSON(json);
                 }
-                return generateSampleData();
+                console.log('Could not parse sheet response');
+                return {};
             } catch (e) {
                 console.error('Sheet fetch failed:', e);
-                return generateSampleData();
+                return {};
             }
         }
+        
         function parseGoogleJSON(json) {
             const data = {};
             Object.keys(COMMODITIES).forEach(c => {
                 data[c] = {};
                 Object.keys(REGIONS).forEach(r => data[c][r] = []);
             });
-            if (!json.table || !json.table.rows) return generateSampleData();
+            if (!json.table || !json.table.rows) return data;
+            
             json.table.rows.forEach(row => {
-                const values = row.c.map(cell => cell ? (cell.v || cell.f || '') : '');
+                if (!row.c) return;
+                const values = row.c.map(cell => cell ? (cell.v !== null ? cell.v : (cell.f || '')) : '');
                 const [date, point, commodity, pkg, low, high, avg, market, demand] = values;
                 if (!date || !commodity) return;
+                
                 let commodityKey = null;
                 const upperComm = String(commodity).toUpperCase();
                 const upperPkg = String(pkg).toUpperCase();
+                
                 if (upperComm.includes('ROMAINE') && upperPkg.includes('HEART')) {
                     commodityKey = 'hearts';
                 } else if (upperComm.includes('ICEBERG')) {
@@ -459,6 +436,7 @@
                 } else if (upperComm.includes('CELERY')) {
                     commodityKey = 'celery';
                 }
+                
                 let regionKey = null;
                 const upperPoint = String(point).toUpperCase();
                 if (upperPoint.includes('SALINAS') || upperPoint.includes('WATSONVILLE')) {
@@ -467,42 +445,46 @@
                     regionKey = 'imperial';
                 } else if (upperPoint.includes('YUMA')) {
                     regionKey = 'yuma';
-                } else if (upperPoint.includes('SANTA MARIA')) {
-                    regionKey = 'santa-maria';
-                } else if (upperPoint.includes('OXNARD')) {
+                } else if (upperPoint.includes('SANTA MARIA') || upperPoint.includes('OXNARD')) {
                     regionKey = 'santa-maria';
                 }
+                
                 if (commodityKey && regionKey && data[commodityKey]?.[regionKey]) {
-                    let dateStr = date;
-                    if (typeof date === 'object' && date instanceof Date) {
+                    let dateStr = '';
+                    if (date instanceof Date) {
                         dateStr = date.toISOString().split('T')[0];
-                    } else if (typeof date === 'string' && date.includes('/')) {
-                        const parts = date.split('/');
-                        dateStr = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+                    } else if (typeof date === 'string') {
+                        if (date.includes('/')) {
+                            const parts = date.split('/');
+                            dateStr = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
+                        } else {
+                            dateStr = date;
+                        }
+                    } else if (typeof date === 'number') {
+                        const d = new Date((date - 25569) * 86400 * 1000);
+                        dateStr = d.toISOString().split('T')[0];
                     }
+                    
                     data[commodityKey][regionKey].push({
                         date: dateStr,
                         low: parseFloat(low) || 0,
                         high: parseFloat(high) || 0,
                         avg: parseFloat(avg) || 0,
-                        demand: demand || 'Moderate',
-                        trend: market || 'Steady'
+                        demand: demand || '',
+                        trend: market || ''
                     });
                 }
             });
+            
             Object.keys(data).forEach(c => {
                 Object.keys(data[c]).forEach(r => {
                     data[c][r].sort((a, b) => new Date(a.date) - new Date(b.date));
                 });
             });
-            const hasData = Object.values(data).some(c => Object.values(c).some(r => r.length > 0));
-            if (hasData) {
-                console.log('Loaded real data from sheet');
-                return data;
-            }
-            console.log('No data found, using sample data');
-            return generateSampleData();
+            
+            return data;
         }
+        
         function renderMainChart() {
             const ctx = document.getElementById('mainChart').getContext('2d');
             const region = getActiveRegion();
@@ -510,10 +492,27 @@
             const cutoff = new Date();
             cutoff.setDate(cutoff.getDate() - state.days);
             const filtered = commodityData.filter(d => new Date(d.date) >= cutoff);
+            
             if (mainChart) mainChart.destroy();
+            
+            if (filtered.length === 0) {
+                mainChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                        scales: { x: { display: false }, y: { display: false } }
+                    }
+                });
+                return;
+            }
+            
             const gradient = ctx.createLinearGradient(0, 0, 0, 400);
             gradient.addColorStop(0, COMMODITIES[state.commodity].color + '40');
             gradient.addColorStop(1, COMMODITIES[state.commodity].color + '00');
+            
             mainChart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -527,8 +526,9 @@
                             borderWidth: 2.5,
                             fill: true,
                             tension: 0.35,
-                            pointRadius: 0,
+                            pointRadius: filtered.length === 1 ? 6 : 0,
                             pointHoverRadius: 6,
+                            pointBackgroundColor: COMMODITIES[state.commodity].color,
                             pointHoverBackgroundColor: COMMODITIES[state.commodity].color
                         },
                         {
@@ -592,16 +592,34 @@
                 }
             });
         }
+        
         function renderSparkline(id, data, color) {
             const ctx = document.getElementById(id);
             if (!ctx) return;
             const recent = data.slice(-30);
             if (sparkCharts[id]) sparkCharts[id].destroy();
+            
+            if (recent.length === 0) {
+                sparkCharts[id] = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+                return;
+            }
+            
             sparkCharts[id] = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: recent.map(d => d.date),
-                    datasets: [{ data: recent.map(d => d.avg), borderColor: color, borderWidth: 1.5, fill: false, tension: 0.4, pointRadius: 0 }]
+                    datasets: [{ 
+                        data: recent.map(d => d.avg), 
+                        borderColor: color, 
+                        borderWidth: 1.5, 
+                        fill: false, 
+                        tension: 0.4, 
+                        pointRadius: recent.length === 1 ? 3 : 0 
+                    }]
                 },
                 options: {
                     responsive: true,
@@ -611,56 +629,99 @@
                 }
             });
         }
+        
         function updateUI() {
             const region = getActiveRegion();
             const data = state.data[state.commodity]?.[region] || [];
             const latest = data[data.length - 1];
             const prev = data[data.length - 2];
+            
             document.getElementById('commodityName').textContent = COMMODITIES[state.commodity].name;
             document.getElementById('shippingPoint').textContent = REGIONS[region]?.name || region;
+            
+            const priceEl = document.getElementById('currentPrice');
+            const changeEl = document.getElementById('priceChange');
+            const metaEl = document.getElementById('priceMeta');
+            
             if (latest) {
+                priceEl.textContent = `$${latest.avg.toFixed(2)}`;
+                priceEl.className = 'price-value';
+                
                 const change = prev ? latest.avg - prev.avg : 0;
                 const pct = prev ? (change / prev.avg) * 100 : 0;
-                document.getElementById('currentPrice').textContent = `$${latest.avg.toFixed(2)}`;
-                const changeEl = document.getElementById('priceChange');
-                changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
-                const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
-                changeEl.innerHTML = `<span>${arrow}</span><span>$${Math.abs(change).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)</span>`;
-                document.getElementById('priceMeta').textContent = `Mostly: $${latest.low.toFixed(2)} - $${latest.high.toFixed(2)} • ${latest.demand} demand • ${latest.trend}`;
+                
+                if (prev) {
+                    changeEl.style.display = 'inline-flex';
+                    changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
+                    const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
+                    changeEl.innerHTML = `<span>${arrow}</span><span>$${Math.abs(change).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)</span>`;
+                } else {
+                    changeEl.style.display = 'none';
+                }
+                
+                metaEl.textContent = `Mostly: $${latest.low.toFixed(2)} - $${latest.high.toFixed(2)}` + 
+                    (latest.demand ? ` • ${latest.demand} demand` : '') + 
+                    (latest.trend ? ` • ${latest.trend}` : '');
+                
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - state.days);
                 const period = data.filter(d => new Date(d.date) >= cutoff);
+                
                 if (period.length > 0) {
                     document.getElementById('stat-high').textContent = `$${Math.max(...period.map(d => d.high)).toFixed(2)}`;
                     document.getElementById('stat-low').textContent = `$${Math.min(...period.map(d => d.low)).toFixed(2)}`;
                     document.getElementById('stat-avg').textContent = `$${(period.reduce((s, d) => s + d.avg, 0) / period.length).toFixed(2)}`;
-                    document.getElementById('stat-demand').textContent = latest.demand;
-                    document.getElementById('stat-trend').textContent = latest.trend;
+                    document.getElementById('stat-demand').textContent = latest.demand || '--';
+                    document.getElementById('stat-trend').textContent = latest.trend || '--';
                 }
+            } else {
+                priceEl.textContent = 'No data';
+                priceEl.className = 'price-value no-data';
+                changeEl.style.display = 'none';
+                metaEl.textContent = `No data available for ${REGIONS[region]?.name || region}`;
+                document.getElementById('stat-high').textContent = '--';
+                document.getElementById('stat-low').textContent = '--';
+                document.getElementById('stat-avg').textContent = '--';
+                document.getElementById('stat-demand').textContent = '--';
+                document.getElementById('stat-trend').textContent = '--';
             }
+            
             document.getElementById('seasonLabel').textContent = getCurrentSeason().label;
             document.getElementById('lastSync').textContent = new Date().toLocaleString();
             renderMainChart();
         }
+        
         function updateCards() {
             const region = getActiveRegion();
             ['iceberg', 'romaine', 'hearts'].forEach(c => {
                 const data = state.data[c]?.[region] || [];
                 const latest = data[data.length - 1];
                 const prev = data[data.length - 2];
+                
+                const priceEl = document.getElementById(`price-${c}`);
+                const badgeEl = document.getElementById(`badge-${c}`);
+                
                 if (latest) {
                     const change = prev ? ((latest.avg - prev.avg) / prev.avg) * 100 : 0;
-                    const priceEl = document.getElementById(`price-${c}`);
-                    const badgeEl = document.getElementById(`badge-${c}`);
                     if (priceEl) priceEl.textContent = `$${latest.avg.toFixed(2)}`;
                     if (badgeEl) {
-                        badgeEl.className = 'card-badge ' + (change > 0.1 ? 'up' : change < -0.1 ? 'down' : 'flat');
-                        badgeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
+                        if (prev) {
+                            badgeEl.style.display = 'inline-block';
+                            badgeEl.className = 'card-badge ' + (change > 0.1 ? 'up' : change < -0.1 ? 'down' : 'flat');
+                            badgeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(1)}%`;
+                        } else {
+                            badgeEl.style.display = 'none';
+                        }
                     }
+                } else {
+                    if (priceEl) priceEl.textContent = '--';
+                    if (badgeEl) badgeEl.style.display = 'none';
                 }
-                if (data.length > 0) renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
+                
+                renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
             });
         }
+        
         function setupEvents() {
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.addEventListener('click', () => {
@@ -698,12 +759,15 @@
                 updateCards();
             });
         }
+        
         async function init() {
             state.data = await fetchData();
+            console.log('Loaded data:', state.data);
             setupEvents();
             updateUI();
             updateCards();
         }
+        
         init();
     </script>
 </body>
