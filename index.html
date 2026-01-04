@@ -9,7 +9,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 
   <style>
-    :root {
+    :root{
       --bg-primary:#0d1117;--bg-secondary:#161b22;--bg-card:#21262d;--bg-hover:#30363d;
       --text-primary:#f0f6fc;--text-secondary:#8b949e;--text-muted:#6e7681;
       --green:#3fb950;--green-dim:rgba(63,185,80,.15);
@@ -18,169 +18,739 @@
       --border:#30363d;
     }
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;background:var(--bg-primary);color:var(--text-primary)}
-    .container{max-width:1400px;margin:auto;padding:20px}
-    header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:20px;margin-bottom:24px}
-    .logo{display:flex;gap:12px;align-items:center}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      background:var(--bg-primary);color:var(--text-primary);
+      min-height:100vh;line-height:1.5
+    }
+    .container{max-width:1400px;margin:0 auto;padding:20px}
+    header{
+      display:flex;justify-content:space-between;align-items:center;
+      padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:24px;
+      flex-wrap:wrap;gap:16px
+    }
+    .logo{display:flex;align-items:center;gap:12px}
     .logo-icon{font-size:32px}
-    .logo-text h1{font-size:1.4rem}
-    .logo-text span{font-size:.8rem;color:var(--text-muted)}
-    .season-badge{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:20px;border:1px solid var(--blue);background:var(--blue-dim);color:var(--blue)}
-    .commodity-tabs{display:flex;gap:8px;margin-bottom:24px}
-    .tab{padding:10px 18px;border-radius:8px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-secondary);cursor:pointer}
-    .tab.active{border-color:var(--green);color:var(--green);background:var(--green-dim)}
+    .logo-text h1{font-size:1.4rem;font-weight:600}
+    .logo-text span{color:var(--text-muted);font-size:.8rem}
+    .season-badge{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:6px 12px;background:var(--blue-dim);
+      border:1px solid var(--blue);border-radius:20px;
+      font-size:.8rem;color:var(--blue);font-weight:500
+    }
+    .season-badge .dot{width:8px;height:8px;background:var(--blue);border-radius:50%;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+    .commodity-tabs{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
+    .tab{
+      padding:10px 18px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;
+      color:var(--text-secondary);font-size:.85rem;font-weight:500;cursor:pointer;transition:all .15s
+    }
+    .tab:hover{background:var(--bg-hover);color:var(--text-primary)}
+    .tab.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
     .main-layout{display:grid;grid-template-columns:1fr 300px;gap:24px}
+    @media (max-width:1024px){.main-layout{grid-template-columns:1fr}}
     .chart-section{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:24px}
-    .chart-container{height:420px;margin-top:16px;position:relative}
-    .no-data{position:absolute;inset:0;display:none;align-items:center;justify-content:center;color:var(--text-muted)}
+    .chart-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:16px}
+    .price-display h2{
+      font-size:.9rem;font-weight:500;color:var(--text-secondary);margin-bottom:8px;
+      display:flex;align-items:center;gap:8px
+    }
+    .shipping-point{font-size:.75rem;padding:3px 8px;background:var(--bg-hover);border-radius:4px;color:var(--text-muted)}
+    .price-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+    .price-value{font-size:2.8rem;font-weight:700;letter-spacing:-2px}
+    .price-change{
+      display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;
+      font-size:.9rem;font-weight:600
+    }
+    .price-change.up{background:var(--green-dim);color:var(--green)}
+    .price-change.down{background:var(--red-dim);color:var(--red)}
+    .price-change.flat{background:var(--bg-hover);color:var(--text-secondary)}
+    .price-meta{color:var(--text-muted);font-size:.8rem;margin-top:6px}
+    .time-controls{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+    .time-range{display:flex;background:var(--bg-card);border-radius:8px;padding:3px;gap:2px}
+    .time-btn{
+      padding:6px 14px;background:transparent;border:none;border-radius:6px;
+      color:var(--text-secondary);font-size:.8rem;font-weight:500;cursor:pointer;transition:all .15s
+    }
+    .time-btn:hover{color:var(--text-primary);background:var(--bg-hover)}
+    .time-btn.active{background:var(--bg-hover);color:var(--text-primary)}
+    .region-toggle{display:flex;align-items:center;gap:8px;font-size:.75rem;color:var(--text-muted)}
+    .region-toggle select{
+      background:var(--bg-card);border:1px solid var(--border);border-radius:6px;
+      padding:4px 8px;color:var(--text-primary);font-size:.75rem;cursor:pointer
+    }
+    .chart-container{position:relative;height:420px;margin-top:16px}
+    .no-data{
+      position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;
+      color:var(--text-muted);font-size:.9rem;
+      background:linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,.25));
+      border-radius:10px;padding:20px;pointer-events:none
+    }
     .no-data.show{display:flex}
-    .price-value{font-size:2.8rem;font-weight:700}
-    .price-change{margin-left:12px}
     .sidebar{display:flex;flex-direction:column;gap:16px}
-    .price-card{border:1px solid var(--border);border-radius:10px;padding:16px}
+    .price-card{
+      background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;
+      padding:16px;cursor:pointer;transition:all .15s
+    }
+    .price-card:hover{border-color:var(--text-muted);transform:translateY(-1px)}
     .price-card.active{border-color:var(--green);background:linear-gradient(135deg,var(--green-dim),transparent)}
-    footer{margin-top:32px;border-top:1px solid var(--border);padding-top:20px;display:flex;justify-content:space-between}
+    .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .card-title{font-size:.85rem;font-weight:600}
+    .card-badge{font-size:.7rem;padding:2px 6px;border-radius:4px;font-weight:500}
+    .card-badge.up{background:var(--green-dim);color:var(--green)}
+    .card-badge.down{background:var(--red-dim);color:var(--red)}
+    .card-badge.flat{background:var(--bg-hover);color:var(--text-muted)}
+    .card-price{font-size:1.5rem;font-weight:700;margin-bottom:4px}
+    .card-range{font-size:.75rem;color:var(--text-muted)}
+    .card-sparkline{height:40px;margin-top:12px}
+    .market-stats{background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px}
+    .stats-title{font-size:.8rem;font-weight:600;color:var(--text-secondary);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
+    .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
+    .stat-row:last-child{border-bottom:none}
+    .stat-label{color:var(--text-secondary)}
+    .stat-value{font-weight:600}
+    footer{
+      margin-top:32px;padding-top:20px;border-top:1px solid var(--border);
+      display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px
+    }
+    .footer-text{font-size:.75rem;color:var(--text-muted)}
+    .footer-text a{color:var(--blue);text-decoration:none}
   </style>
 </head>
 
 <body>
-<div class="container">
+  <div class="container">
+    <header>
+      <div class="logo">
+        <span class="logo-icon">🥬</span>
+        <div class="logo-text">
+          <h1>FOB Produce Prices</h1>
+          <span>USDA Market News • MOSTLY Avg</span>
+        </div>
+      </div>
+      <div class="season-badge">
+        <span class="dot"></span>
+        <span id="seasonLabel">—</span>
+      </div>
+    </header>
 
-<header>
-  <div class="logo">
-    <span class="logo-icon">🥬</span>
-    <div class="logo-text">
-      <h1>FOB Produce Prices</h1>
-      <span>USDA Market News • MOSTLY Avg</span>
+    <div class="commodity-tabs">
+      <button class="tab active" data-commodity="iceberg">Iceberg Lettuce</button>
+      <button class="tab" data-commodity="romaine">Romaine Lettuce</button>
+      <button class="tab" data-commodity="hearts">Romaine Hearts</button>
+      <button class="tab" data-commodity="broccoli">Broccoli</button>
+      <button class="tab" data-commodity="cauliflower">Cauliflower</button>
+      <button class="tab" data-commodity="celery">Celery</button>
     </div>
+
+    <div class="main-layout">
+      <div class="chart-section">
+        <div class="chart-header">
+          <div class="price-display">
+            <h2>
+              <span id="commodityName">Iceberg Lettuce</span>
+              <span class="shipping-point" id="shippingPoint">—</span>
+            </h2>
+            <div class="price-row">
+              <span class="price-value" id="currentPrice">—</span>
+              <span class="price-change flat" id="priceChange"><span>→</span><span>—</span></span>
+            </div>
+            <div class="price-meta" id="priceMeta">Waiting for data…</div>
+          </div>
+
+          <div class="time-controls">
+            <div class="time-range">
+              <button class="time-btn" data-days="30">30D</button>
+              <button class="time-btn active" data-days="60">60D</button>
+              <button class="time-btn" data-days="90">90D</button>
+              <button class="time-btn" data-days="180">6M</button>
+              <button class="time-btn" data-days="365">1Y</button>
+            </div>
+            <div class="region-toggle">
+              <span>Region:</span>
+              <select id="regionSelect">
+                <option value="auto">Auto (Smart)</option>
+                <option value="salinas">Salinas</option>
+                <option value="imperial">Imperial/Coachella</option>
+                <option value="yuma">Yuma</option>
+                <option value="santa-maria">Santa Maria</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="mainChart"></canvas>
+          <div id="noDataOverlay" class="no-data">
+            No matching rows found for this commodity/region yet.<br/>
+            (Or the published History tab has no rows.)
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar">
+        <div class="price-card active" data-commodity="iceberg">
+          <div class="card-header">
+            <span class="card-title">Iceberg</span>
+            <span class="card-badge flat" id="badge-iceberg">—</span>
+          </div>
+          <div class="card-price" id="price-iceberg">—</div>
+          <div class="card-range">Mostly Avg</div>
+          <canvas class="card-sparkline" id="spark-iceberg"></canvas>
+        </div>
+
+        <div class="price-card" data-commodity="romaine">
+          <div class="card-header">
+            <span class="card-title">Romaine</span>
+            <span class="card-badge flat" id="badge-romaine">—</span>
+          </div>
+          <div class="card-price" id="price-romaine">—</div>
+          <div class="card-range">Mostly Avg</div>
+          <canvas class="card-sparkline" id="spark-romaine"></canvas>
+        </div>
+
+        <div class="price-card" data-commodity="hearts">
+          <div class="card-header">
+            <span class="card-title">Romaine Hearts</span>
+            <span class="card-badge flat" id="badge-hearts">—</span>
+          </div>
+          <div class="card-price" id="price-hearts">—</div>
+          <div class="card-range">Mostly Avg</div>
+          <canvas class="card-sparkline" id="spark-hearts"></canvas>
+        </div>
+
+        <div class="market-stats">
+          <div class="stats-title">Market Overview</div>
+          <div class="stat-row">
+            <span class="stat-label">Window High</span>
+            <span class="stat-value" id="stat-high">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Window Low</span>
+            <span class="stat-value" id="stat-low">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Window Avg</span>
+            <span class="stat-value" id="stat-avg">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Demand</span>
+            <span class="stat-value" id="stat-demand">—</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Market</span>
+            <span class="stat-value" id="stat-trend">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <div class="footer-text">
+        Data: <a href="https://www.ams.usda.gov/mnreports/fvdfob.pdf" target="_blank" rel="noreferrer">USDA AMS National FOB Review</a> •
+        Using “Mostly Avg”
+      </div>
+      <div class="footer-text">Last sync: <span id="lastSync">--</span></div>
+    </footer>
   </div>
-  <div class="season-badge" id="seasonLabel">Auto</div>
-</header>
 
-<div class="commodity-tabs">
-  <button class="tab active" data-commodity="iceberg">Iceberg</button>
-  <button class="tab" data-commodity="romaine">Romaine</button>
-  <button class="tab" data-commodity="hearts">Romaine Hearts</button>
-  <button class="tab" data-commodity="broccoli">Broccoli</button>
-  <button class="tab" data-commodity="cauliflower">Cauliflower</button>
-  <button class="tab" data-commodity="celery">Celery</button>
-</div>
+  <script>
+    // ========= CONFIG =========
+    const PUBLISHED_DOC_ID = '2PACX-1vQVa4C--Jhg96w7_A0vqkTJouxLCvHOn2AT49foGzmdjcvU9DIn9a0QoEADzQ6SCDmqmuHNRZcJVmgm';
+    const DEFAULT_GID = 1273956115; // <-- if your published History tab has a different gid, change this
 
-<div class="main-layout">
-  <div class="chart-section">
-    <h2 id="commodityName">Iceberg</h2>
-    <div>
-      <span class="price-value" id="currentPrice">—</span>
-      <span class="price-change" id="priceChange">—</span>
-    </div>
-    <div class="chart-container">
-      <canvas id="mainChart"></canvas>
-      <div class="no-data" id="noData">No matching rows yet</div>
-    </div>
-  </div>
+    // ========= DISPLAY CONFIG =========
+    const COMMODITIES = {
+      iceberg:   { name: 'Iceberg Lettuce', color: '#3fb950' },
+      romaine:   { name: 'Romaine Lettuce', color: '#58a6ff' },
+      hearts:    { name: 'Romaine Hearts',  color: '#a371f7' },
+      broccoli:  { name: 'Broccoli',        color: '#3fb950' },
+      cauliflower:{ name:'Cauliflower',     color: '#f0f6fc' },
+      celery:    { name: 'Celery',          color: '#7ee787' }
+    };
 
-  <div class="sidebar">
-    <div class="price-card active" data-commodity="iceberg">
-      <strong>Iceberg</strong>
-      <div id="price-iceberg">—</div>
-    </div>
-    <div class="price-card" data-commodity="romaine">
-      <strong>Romaine</strong>
-      <div id="price-romaine">—</div>
-    </div>
-    <div class="price-card" data-commodity="hearts">
-      <strong>Hearts</strong>
-      <div id="price-hearts">—</div>
-    </div>
-  </div>
-</div>
+    const REGIONS = {
+      salinas:      { name: 'Salinas-Watsonville', season: [4,5,6,7,8,9,10,11] },
+      imperial:     { name: 'Imperial/Coachella',  season: [11,12,1,2,3] },
+      yuma:         { name: 'Yuma',                season: [11,12,1,2,3] },
+      'santa-maria':{ name: 'Santa Maria',         season: [1,2,3,4,5,6,7,8,9,10,11,12] }
+    };
 
-<footer>
-  <div>USDA AMS FOB Review</div>
-  <div id="lastSync">—</div>
-</footer>
+    let state = { commodity: 'iceberg', region: 'auto', days: 60, data: {} };
+    let mainChart = null;
+    const sparkCharts = {};
 
-</div>
+    // ========= HELPERS =========
+    function getUrlParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
 
-<script>
-const SHEET_URL =
-'https://docs.google.com/spreadsheets/d/e/2PACX-1vQVa4C--Jhg96w7_A0vqkTJouxLCvHOn2AT49foGzmdjcvU9DIn9a0QoEADzQ6SCDmqmuHNRZcJVmgm/pub?gid=1273956115&single=true&output=csv';
+    function buildCsvUrl() {
+      const gidParam = getUrlParam('gid');
+      const gid = gidParam ? String(gidParam) : String(DEFAULT_GID);
+      // cachebust helps GitHub Pages + Sheets caches
+      return `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_DOC_ID}/pub?gid=${encodeURIComponent(gid)}&single=true&output=csv&cachebust=${Date.now()}`;
+    }
 
-let state={commodity:'iceberg',data:{}},chart=null;
+    function getCurrentSeason() {
+      const month = new Date().getMonth() + 1;
+      if ([11,12,1,2,3].includes(month)) return { region: 'imperial', label: 'Winter Season • Imperial/Yuma' };
+      return { region: 'salinas', label: 'Summer Season • Salinas' };
+    }
 
-function csvParseLine(l){
-  let r=[],c='',q=false;
-  for(let i=0;i<l.length;i++){
-    if(l[i]=='"'){q=!q}
-    else if(l[i]==','&&!q){r.push(c);c=''}
-    else c+=l[i];
-  }
-  r.push(c);return r;
-}
+    // Auto region: prefer seasonal, but if no data there, fall back to first region with data for that commodity
+    function getActiveRegion() {
+      if (state.region !== 'auto') return state.region;
 
-function normalizeDate(d){
-  if(d.includes('/')){
-    let [m,dd,y]=d.split('/');
-    return `${y}-${m.padStart(2,'0')}-${dd.padStart(2,'0')}`;
-  }
-  return d;
-}
+      const preferred = getCurrentSeason().region;
+      const commodityData = state.data[state.commodity] || {};
+      if (commodityData[preferred]?.length) return preferred;
 
-function mapCommodity(c,p){
-  c=c.toUpperCase();p=p.toUpperCase();
-  if(c==='LETTUCE, ICEBERG')return'iceberg';
-  if(c==='LETTUCE, ROMAINE'&&p.includes('HEART'))return'hearts';
-  if(c==='LETTUCE, ROMAINE')return'romaine';
-  if(c==='BROCCOLI')return'broccoli';
-  if(c==='CAULIFLOWER')return'cauliflower';
-  if(c==='CELERY')return'celery';
-  return null;
-}
+      for (const r of Object.keys(commodityData)) {
+        if (commodityData[r]?.length) return r;
+      }
+      return preferred;
+    }
 
-async function loadData(){
-  const t=await fetch(SHEET_URL).then(r=>r.text());
-  const l=t.trim().split('\n');
-  const h=csvParseLine(l[0]).map(x=>x.toLowerCase());
-  const i=d=>h.indexOf(d);
-  let data={};
+    function showNoData(show) {
+      document.getElementById('noDataOverlay')?.classList.toggle('show', !!show);
+    }
 
-  for(let i2=1;i2<l.length;i2++){
-    const r=csvParseLine(l[i2]);
-    const ckey=mapCommodity(r[i('commodity')],r[i('package')]);
-    if(!ckey)continue;
-    const avg=parseFloat(r[i('mostly avg')]);
-    if(!avg)continue;
-    data[ckey]??=[];
-    data[ckey].push({date:normalizeDate(r[i('date')]),avg});
-  }
-  state.data=data;
-}
+    function parseCSVLine(line) {
+      const out = [];
+      let cur = '';
+      let inQuotes = false;
 
-function render(){
-  const d=state.data[state.commodity]||[];
-  if(chart)chart.destroy();
-  if(!d.length){document.getElementById('noData').classList.add('show');return;}
-  document.getElementById('noData').classList.remove('show');
-  document.getElementById('currentPrice').textContent=`$${d.at(-1).avg.toFixed(2)}`;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+          else inQuotes = !inQuotes;
+        } else if (ch === ',' && !inQuotes) {
+          out.push(cur);
+          cur = '';
+        } else {
+          cur += ch;
+        }
+      }
+      out.push(cur);
+      return out;
+    }
 
-  chart=new Chart(document.getElementById('mainChart'),{
-    type:'line',
-    data:{labels:d.map(x=>x.date),datasets:[{data:d.map(x=>x.avg),borderColor:'#3fb950',fill:false,pointRadius:d.length===1?4:0}]},
-    options:{responsive:true,maintainAspectRatio:false}
-  });
-}
+    function normalizeDateToISO(s) {
+      if (!s) return null;
+      const str = String(s).trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-document.querySelectorAll('.tab').forEach(b=>{
-  b.onclick=()=>{
-    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-    b.classList.add('active');
-    state.commodity=b.dataset.commodity;
-    render();
-  };
-});
+      // m/d/yyyy
+      if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length >= 3) {
+          const mm = parts[0].padStart(2, '0');
+          const dd = parts[1].padStart(2, '0');
+          let yy = parts[2];
+          if (yy.length === 2) yy = '20' + yy;
+          return `${yy}-${mm}-${dd}`;
+        }
+      }
 
-loadData().then(render);
-</script>
+      const dt = new Date(str);
+      if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
+      return null;
+    }
 
+    function mapCommodityKey(commodity, pkg) {
+      const c = String(commodity || '').toUpperCase().trim();
+      const p = String(pkg || '').toUpperCase();
+
+      // Exact USDA-style matches first
+      if (c === 'LETTUCE, ICEBERG') return 'iceberg';
+      if (c === 'LETTUCE, ROMAINE' && p.includes('HEART')) return 'hearts';
+      if (c === 'LETTUCE, ROMAINE') return 'romaine';
+      if (c === 'BROCCOLI') return 'broccoli';
+      if (c === 'CAULIFLOWER') return 'cauliflower';
+      if (c === 'CELERY') return 'celery';
+
+      // Fallback fuzzy matches
+      if (c.includes('ICEBERG')) return 'iceberg';
+      if (c.includes('ROMAINE') && p.includes('HEART')) return 'hearts';
+      if (c.includes('ROMAINE')) return 'romaine';
+      if (c.includes('BROCCOLI')) return 'broccoli';
+      if (c.includes('CAULIFLOWER')) return 'cauliflower';
+      if (c.includes('CELERY')) return 'celery';
+
+      return null;
+    }
+
+    function mapRegionKey(shippingPoint) {
+      const sp = String(shippingPoint || '').toUpperCase();
+
+      if (sp.includes('SALINAS') || sp.includes('WATSONVILLE')) return 'salinas';
+      if (sp.includes('IMPERIAL') || sp.includes('COACHELLA')) return 'imperial';
+      if (sp.includes('YUMA')) return 'yuma';
+      if (sp.includes('SANTA MARIA') || sp.includes('OXNARD')) return 'santa-maria';
+
+      return null;
+    }
+
+    function parseHistoryCSV(csvText) {
+      const text = csvText.trim();
+      if (!text) return {};
+
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length < 2) return {};
+
+      const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+      const idx = (name) => header.indexOf(String(name).toLowerCase());
+
+      // Supports BOTH schemas:
+      // (A) Date, Shipping Point, Commodity, Package, Mostly Low/High/Avg, Market, Demand
+      // (B) Date, Commodity, Shipping Point, Package, Mostly Low/High/Avg, ... Trend, etc.
+      const iDate   = idx('date');
+      const iPoint  = idx('shipping point');
+      const iComm   = idx('commodity');
+      const iPkg    = idx('package');
+      const iLow    = idx('mostly low');
+      const iHigh   = idx('mostly high');
+      const iAvg    = idx('mostly avg');
+      const iMarket = idx('market');   // optional
+      const iDemand = idx('demand');   // optional
+      const iTrend  = idx('trend');    // optional (some sheets use Trend instead of Market)
+
+      if (iDate === -1 || iComm === -1 || iPoint === -1 || iAvg === -1) {
+        return {}; // missing required columns
+      }
+
+      const data = {};
+      for (const c of Object.keys(COMMODITIES)) {
+        data[c] = {};
+        for (const r of Object.keys(REGIONS)) data[c][r] = [];
+      }
+
+      for (let li = 1; li < lines.length; li++) {
+        const row = parseCSVLine(lines[li]);
+
+        const dateStr = normalizeDateToISO(row[iDate]);
+        const commodity = row[iComm];
+        const shippingPoint = row[iPoint];
+        const pkg = iPkg !== -1 ? row[iPkg] : '';
+
+        if (!dateStr || !commodity || !shippingPoint) continue;
+
+        const commodityKey = mapCommodityKey(commodity, pkg);
+        const regionKey = mapRegionKey(shippingPoint);
+        if (!commodityKey || !regionKey) continue;
+
+        const avgN = Number(row[iAvg]);
+        if (!Number.isFinite(avgN) || avgN <= 0) continue;
+
+        const lowN = iLow !== -1 ? Number(row[iLow]) : NaN;
+        const highN = iHigh !== -1 ? Number(row[iHigh]) : NaN;
+
+        const marketVal =
+          (iMarket !== -1 ? String(row[iMarket] || '').trim() : '') ||
+          (iTrend !== -1 ? String(row[iTrend] || '').trim() : '');
+
+        const demandVal = iDemand !== -1 ? String(row[iDemand] || '').trim() : '';
+
+        data[commodityKey][regionKey].push({
+          date: dateStr,
+          low: Number.isFinite(lowN) ? lowN : avgN,
+          high: Number.isFinite(highN) ? highN : avgN,
+          avg: avgN,
+          trend: marketVal,
+          demand: demandVal
+        });
+      }
+
+      for (const c of Object.keys(data)) {
+        for (const r of Object.keys(data[c])) {
+          data[c][r].sort((a,b) => new Date(a.date) - new Date(b.date));
+        }
+      }
+      return data;
+    }
+
+    async function fetchData() {
+      const url = buildCsvUrl();
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        const text = await res.text();
+        const parsed = parseHistoryCSV(text);
+        return parsed;
+      } catch (e) {
+        console.error('Fetch failed:', e);
+        return {};
+      }
+    }
+
+    // ========= CHART RENDERING =========
+    function renderMainChart() {
+      const canvas = document.getElementById('mainChart');
+      const ctx = canvas.getContext('2d');
+
+      const region = getActiveRegion();
+      const series = state.data[state.commodity]?.[region] || [];
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - state.days);
+      const filtered = series.filter(d => new Date(d.date) >= cutoff);
+
+      if (mainChart) mainChart.destroy();
+
+      if (filtered.length === 0) {
+        showNoData(true);
+        return;
+      }
+      showNoData(false);
+
+      const gradient = ctx.createLinearGradient(0, 0, 0, 420);
+      gradient.addColorStop(0, COMMODITIES[state.commodity].color + '40');
+      gradient.addColorStop(1, COMMODITIES[state.commodity].color + '00');
+
+      mainChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: filtered.map(d => d.date),
+          datasets: [{
+            label: 'Mostly Avg',
+            data: filtered.map(d => d.avg),
+            borderColor: COMMODITIES[state.commodity].color,
+            backgroundColor: gradient,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.35,
+            pointRadius: filtered.length === 1 ? 4 : 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: COMMODITIES[state.commodity].color
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'index' },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#21262d',
+              titleColor: '#f0f6fc',
+              bodyColor: '#8b949e',
+              borderColor: '#30363d',
+              borderWidth: 1,
+              padding: 12,
+              displayColors: false,
+              callbacks: {
+                title: (items) =>
+                  new Date(items[0].label).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }),
+                label: (item) => `Avg: $${Number(item.raw).toFixed(2)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'time',
+              time: { unit: state.days <= 60 ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM' } },
+              grid: { color: 'rgba(48, 54, 61, 0.5)', drawBorder: false },
+              ticks: { color: '#6e7681', maxTicksLimit: 8 }
+            },
+            y: {
+              position: 'right',
+              grid: { color: 'rgba(48, 54, 61, 0.5)', drawBorder: false },
+              ticks: { color: '#6e7681', callback: v => '$' + v }
+            }
+          }
+        }
+      });
+    }
+
+    function renderSparkline(id, data, color) {
+      const canvas = document.getElementById(id);
+      if (!canvas) return;
+
+      const recent = data.slice(-30);
+      if (sparkCharts[id]) sparkCharts[id].destroy();
+
+      sparkCharts[id] = new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: recent.map(d => d.date),
+          datasets: [{
+            data: recent.map(d => d.avg),
+            borderColor: color,
+            borderWidth: 1.5,
+            fill: false,
+            tension: 0.4,
+            pointRadius: recent.length === 1 ? 3 : 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false } }
+        }
+      });
+    }
+
+    // ========= UI =========
+    function updateUI() {
+      const region = getActiveRegion();
+      const data = state.data[state.commodity]?.[region] || [];
+
+      document.getElementById('commodityName').textContent = COMMODITIES[state.commodity].name;
+      document.getElementById('shippingPoint').textContent = REGIONS[region]?.name || region;
+      document.getElementById('seasonLabel').textContent = getCurrentSeason().label;
+      document.getElementById('lastSync').textContent = new Date().toLocaleString();
+
+      const latest = data[data.length - 1];
+      const prev = data[data.length - 2];
+
+      if (!latest) {
+        document.getElementById('currentPrice').textContent = '—';
+        document.getElementById('priceMeta').textContent = 'No matching rows yet';
+
+        const changeEl = document.getElementById('priceChange');
+        changeEl.className = 'price-change flat';
+        changeEl.innerHTML = `<span>→</span><span>—</span>`;
+
+        document.getElementById('stat-high').textContent = '—';
+        document.getElementById('stat-low').textContent  = '—';
+        document.getElementById('stat-avg').textContent  = '—';
+        document.getElementById('stat-demand').textContent = '—';
+        document.getElementById('stat-trend').textContent  = '—';
+
+        renderMainChart();
+        return;
+      }
+
+      document.getElementById('currentPrice').textContent = `$${latest.avg.toFixed(2)}`;
+
+      const changeEl = document.getElementById('priceChange');
+      if (!prev) {
+        changeEl.className = 'price-change flat';
+        changeEl.innerHTML = `<span>→</span><span>—</span>`;
+      } else {
+        const change = latest.avg - prev.avg;
+        const pct = (change / prev.avg) * 100;
+        changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
+        const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
+        changeEl.innerHTML = `<span>${arrow}</span><span>$${Math.abs(change).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)</span>`;
+      }
+
+      const metaParts = [];
+      if (latest.demand) metaParts.push(`${latest.demand} demand`);
+      if (latest.trend) metaParts.push(latest.trend);
+      metaParts.push(`Updated ${new Date(latest.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`);
+      document.getElementById('priceMeta').textContent = metaParts.join(' • ');
+
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - state.days);
+      const period = data.filter(d => new Date(d.date) >= cutoff);
+
+      if (period.length > 0) {
+        const avgs = period.map(d => d.avg);
+        document.getElementById('stat-high').textContent = `$${Math.max(...avgs).toFixed(2)}`;
+        document.getElementById('stat-low').textContent  = `$${Math.min(...avgs).toFixed(2)}`;
+        document.getElementById('stat-avg').textContent  = `$${(avgs.reduce((s,v)=>s+v,0)/avgs.length).toFixed(2)}`;
+      }
+
+      document.getElementById('stat-demand').textContent = latest.demand || '—';
+      document.getElementById('stat-trend').textContent  = latest.trend || '—';
+
+      renderMainChart();
+    }
+
+    function updateCards() {
+      const region = getActiveRegion();
+      ['iceberg','romaine','hearts'].forEach(c => {
+        const data = state.data[c]?.[region] || [];
+        const latest = data[data.length - 1];
+        const prev = data[data.length - 2];
+
+        const priceEl = document.getElementById(`price-${c}`);
+        const badgeEl = document.getElementById(`badge-${c}`);
+
+        if (!latest) {
+          if (priceEl) priceEl.textContent = '—';
+          if (badgeEl) { badgeEl.className = 'card-badge flat'; badgeEl.textContent = '—'; }
+          if (data.length > 0) renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
+          return;
+        }
+
+        if (priceEl) priceEl.textContent = `$${latest.avg.toFixed(2)}`;
+
+        if (badgeEl) {
+          if (!prev) {
+            badgeEl.className = 'card-badge flat';
+            badgeEl.textContent = '—';
+          } else {
+            const changePct = ((latest.avg - prev.avg) / prev.avg) * 100;
+            badgeEl.className = 'card-badge ' + (changePct > 0.1 ? 'up' : changePct < -0.1 ? 'down' : 'flat');
+            badgeEl.textContent = `${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%`;
+          }
+        }
+
+        renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
+      });
+    }
+
+    function setupEvents() {
+      document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+
+          state.commodity = tab.dataset.commodity;
+
+          document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
+          document.querySelector(`.price-card[data-commodity="${state.commodity}"]`)?.classList.add('active');
+
+          updateUI();
+        });
+      });
+
+      document.querySelectorAll('.price-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const c = card.dataset.commodity;
+          if (!c) return;
+
+          document.querySelectorAll('.price-card').forEach(p => p.classList.remove('active'));
+          card.classList.add('active');
+
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.querySelector(`.tab[data-commodity="${c}"]`)?.classList.add('active');
+
+          state.commodity = c;
+          updateUI();
+        });
+      });
+
+      document.querySelectorAll('.time-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          state.days = parseInt(btn.dataset.days, 10);
+          updateUI();
+        });
+      });
+
+      document.getElementById('regionSelect').addEventListener('change', e => {
+        state.region = e.target.value;
+        updateUI();
+        updateCards();
+      });
+    }
+
+    async function init() {
+      state.data = await fetchData();
+      setupEvents();
+      updateUI();
+      updateCards();
+    }
+
+    init();
+  </script>
 </body>
 </html>
