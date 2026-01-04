@@ -9,113 +9,135 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 
   <style>
-    :root{
-      --bg-primary:#0d1117;--bg-secondary:#161b22;--bg-card:#21262d;--bg-hover:#30363d;
-      --text-primary:#f0f6fc;--text-secondary:#8b949e;--text-muted:#6e7681;
-      --green:#3fb950;--green-dim:rgba(63,185,80,.15);
-      --red:#f85149;--red-dim:rgba(248,81,73,.15);
-      --blue:#58a6ff;--blue-dim:rgba(88,166,255,.15);
-      --border:#30363d;
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-card: #21262d;
+      --bg-hover: #30363d;
+      --text-primary: #f0f6fc;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --green: #3fb950;
+      --green-dim: rgba(63, 185, 80, 0.15);
+      --red: #f85149;
+      --red-dim: rgba(248, 81, 73, 0.15);
+      --blue: #58a6ff;
+      --blue-dim: rgba(88, 166, 255, 0.15);
+      --border: #30363d;
     }
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-      background:var(--bg-primary);color:var(--text-primary);
-      min-height:100vh;line-height:1.5
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
     }
-    .container{max-width:1400px;margin:0 auto;padding:20px}
-    header{
-      display:flex;justify-content:space-between;align-items:center;
-      padding-bottom:20px;border-bottom:1px solid var(--border);margin-bottom:24px;
-      flex-wrap:wrap;gap:16px
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding-bottom: 20px; border-bottom: 1px solid var(--border);
+      margin-bottom: 24px; flex-wrap: wrap; gap: 16px;
     }
-    .logo{display:flex;align-items:center;gap:12px}
-    .logo-icon{font-size:32px}
-    .logo-text h1{font-size:1.4rem;font-weight:600}
-    .logo-text span{color:var(--text-muted);font-size:.8rem}
-    .season-badge{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:6px 12px;background:var(--blue-dim);
-      border:1px solid var(--blue);border-radius:20px;
-      font-size:.8rem;color:var(--blue);font-weight:500
+    .logo { display:flex; align-items:center; gap:12px; }
+    .logo-icon { font-size:32px; }
+    .logo-text h1 { font-size:1.4rem; font-weight:600; }
+    .logo-text span { color:var(--text-muted); font-size:.8rem; }
+    .season-badge {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 12px; background:var(--blue-dim);
+      border:1px solid var(--blue); border-radius:20px;
+      font-size:.75rem; color:var(--blue); font-weight:500;
     }
-    .season-badge .dot{width:8px;height:8px;background:var(--blue);border-radius:50%;animation:pulse 2s infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-    .commodity-tabs{display:flex;gap:6px;margin-bottom:24px;flex-wrap:wrap}
-    .tab{
-      padding:10px 18px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;
-      color:var(--text-secondary);font-size:.85rem;font-weight:500;cursor:pointer;transition:all .15s
+    .season-badge .dot { width:8px;height:8px;background:var(--blue);border-radius:50%;animation:pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.5 } }
+
+    .commodity-tabs { display:flex; gap:6px; margin-bottom:24px; flex-wrap:wrap; }
+    .tab {
+      padding:10px 18px; background:var(--bg-secondary);
+      border:1px solid var(--border); border-radius:8px;
+      color:var(--text-secondary); font-size:.85rem; font-weight:500;
+      cursor:pointer; transition:all .15s;
     }
-    .tab:hover{background:var(--bg-hover);color:var(--text-primary)}
-    .tab.active{background:var(--green-dim);border-color:var(--green);color:var(--green)}
-    .main-layout{display:grid;grid-template-columns:1fr 300px;gap:24px}
-    @media (max-width:1024px){.main-layout{grid-template-columns:1fr}}
-    .chart-section{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:24px}
-    .chart-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:16px}
-    .price-display h2{
-      font-size:.9rem;font-weight:500;color:var(--text-secondary);margin-bottom:8px;
-      display:flex;align-items:center;gap:8px
+    .tab:hover { background:var(--bg-hover); color:var(--text-primary); }
+    .tab.active { background:var(--green-dim); border-color:var(--green); color:var(--green); }
+
+    .main-layout { display:grid; grid-template-columns: 1fr 300px; gap:24px; }
+    @media (max-width:1024px){ .main-layout { grid-template-columns:1fr; } }
+
+    .chart-section { background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:24px; }
+    .chart-header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+
+    .price-display h2 {
+      font-size:.9rem; font-weight:500; color:var(--text-secondary);
+      margin-bottom:8px; display:flex; align-items:center; gap:8px;
     }
-    .shipping-point{font-size:.75rem;padding:3px 8px;background:var(--bg-hover);border-radius:4px;color:var(--text-muted)}
-    .price-row{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
-    .price-value{font-size:2.8rem;font-weight:700;letter-spacing:-2px}
-    .price-change{
-      display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;
-      font-size:.9rem;font-weight:600
+    .shipping-point { font-size:.75rem; padding:3px 8px; background:var(--bg-hover); border-radius:4px; color:var(--text-muted); }
+
+    .price-row { display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+    .price-value { font-size:2.8rem; font-weight:700; letter-spacing:-2px; }
+
+    .price-change {
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 10px; border-radius:6px;
+      font-size:.9rem; font-weight:600;
     }
-    .price-change.up{background:var(--green-dim);color:var(--green)}
-    .price-change.down{background:var(--red-dim);color:var(--red)}
-    .price-change.flat{background:var(--bg-hover);color:var(--text-secondary)}
-    .price-meta{color:var(--text-muted);font-size:.8rem;margin-top:6px}
-    .time-controls{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
-    .time-range{display:flex;background:var(--bg-card);border-radius:8px;padding:3px;gap:2px}
-    .time-btn{
-      padding:6px 14px;background:transparent;border:none;border-radius:6px;
-      color:var(--text-secondary);font-size:.8rem;font-weight:500;cursor:pointer;transition:all .15s
+    .price-change.up { background:var(--green-dim); color:var(--green); }
+    .price-change.down { background:var(--red-dim); color:var(--red); }
+    .price-change.flat { background:var(--bg-hover); color:var(--text-secondary); }
+    .price-meta { color:var(--text-muted); font-size:.8rem; margin-top:6px; }
+
+    .time-controls { display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+    .time-range { display:flex; background:var(--bg-card); border-radius:8px; padding:3px; gap:2px; }
+    .time-btn {
+      padding:6px 14px; background:transparent; border:none; border-radius:6px;
+      color:var(--text-secondary); font-size:.8rem; font-weight:500;
+      cursor:pointer; transition:all .15s;
     }
-    .time-btn:hover{color:var(--text-primary);background:var(--bg-hover)}
-    .time-btn.active{background:var(--bg-hover);color:var(--text-primary)}
-    .region-toggle{display:flex;align-items:center;gap:8px;font-size:.75rem;color:var(--text-muted)}
-    .region-toggle select{
-      background:var(--bg-card);border:1px solid var(--border);border-radius:6px;
-      padding:4px 8px;color:var(--text-primary);font-size:.75rem;cursor:pointer
+    .time-btn:hover { color:var(--text-primary); background:var(--bg-hover); }
+    .time-btn.active { background:var(--bg-hover); color:var(--text-primary); }
+
+    .region-toggle { display:flex; align-items:center; gap:8px; font-size:.75rem; color:var(--text-muted); }
+    .region-toggle select {
+      background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+      padding:4px 8px; color:var(--text-primary); font-size:.75rem; cursor:pointer;
     }
-    .chart-container{position:relative;height:420px;margin-top:16px}
-    .no-data{
-      position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;
-      color:var(--text-muted);font-size:.9rem;
-      background:linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,.25));
-      border-radius:10px;padding:20px;pointer-events:none
+
+    .chart-container { position:relative; height:420px; margin-top:16px; }
+    .no-data {
+      position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+      text-align:center; color:var(--text-muted); padding:24px;
     }
-    .no-data.show{display:flex}
-    .sidebar{display:flex;flex-direction:column;gap:16px}
-    .price-card{
-      background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;
-      padding:16px;cursor:pointer;transition:all .15s
+    .no-data.show { display:flex; }
+
+    .sidebar { display:flex; flex-direction:column; gap:16px; }
+    .price-card {
+      background:var(--bg-secondary); border:1px solid var(--border);
+      border-radius:10px; padding:16px; cursor:pointer; transition:all .15s;
     }
-    .price-card:hover{border-color:var(--text-muted);transform:translateY(-1px)}
-    .price-card.active{border-color:var(--green);background:linear-gradient(135deg,var(--green-dim),transparent)}
-    .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-    .card-title{font-size:.85rem;font-weight:600}
-    .card-badge{font-size:.7rem;padding:2px 6px;border-radius:4px;font-weight:500}
-    .card-badge.up{background:var(--green-dim);color:var(--green)}
-    .card-badge.down{background:var(--red-dim);color:var(--red)}
-    .card-badge.flat{background:var(--bg-hover);color:var(--text-muted)}
-    .card-price{font-size:1.5rem;font-weight:700;margin-bottom:4px}
-    .card-range{font-size:.75rem;color:var(--text-muted)}
-    .card-sparkline{height:40px;margin-top:12px}
-    .market-stats{background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;padding:16px}
-    .stats-title{font-size:.8rem;font-weight:600;color:var(--text-secondary);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
-    .stat-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:.85rem}
-    .stat-row:last-child{border-bottom:none}
-    .stat-label{color:var(--text-secondary)}
-    .stat-value{font-weight:600}
-    footer{
-      margin-top:32px;padding-top:20px;border-top:1px solid var(--border);
-      display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px
+    .price-card:hover { border-color:var(--text-muted); transform:translateY(-1px); }
+    .price-card.active { border-color:var(--green); background:linear-gradient(135deg,var(--green-dim),transparent); }
+
+    .card-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .card-title { font-size:.85rem; font-weight:600; }
+    .card-badge { font-size:.7rem; padding:2px 6px; border-radius:4px; font-weight:500; }
+    .card-badge.up { background:var(--green-dim); color:var(--green); }
+    .card-badge.down { background:var(--red-dim); color:var(--red); }
+    .card-badge.flat { background:var(--bg-hover); color:var(--text-muted); }
+
+    .card-price { font-size:1.5rem; font-weight:700; margin-bottom:4px; }
+    .card-range { font-size:.75rem; color:var(--text-muted); }
+    .card-sparkline { height:40px; margin-top:12px; }
+
+    footer {
+      margin-top:32px; padding-top:20px; border-top:1px solid var(--border);
+      display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px;
     }
-    .footer-text{font-size:.75rem;color:var(--text-muted)}
-    .footer-text a{color:var(--blue);text-decoration:none}
+    .footer-text { font-size:.75rem; color:var(--text-muted); }
+    .footer-text a { color:var(--blue); text-decoration:none; }
+
+    /* tiny debug footer */
+    .debug { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
   </style>
 </head>
 
@@ -157,6 +179,7 @@
               <span class="price-change flat" id="priceChange"><span>→</span><span>—</span></span>
             </div>
             <div class="price-meta" id="priceMeta">Waiting for data…</div>
+            <div class="debug" id="debugLine">Loading…</div>
           </div>
 
           <div class="time-controls">
@@ -219,30 +242,6 @@
           <div class="card-range">Mostly Avg</div>
           <canvas class="card-sparkline" id="spark-hearts"></canvas>
         </div>
-
-        <div class="market-stats">
-          <div class="stats-title">Market Overview</div>
-          <div class="stat-row">
-            <span class="stat-label">Window High</span>
-            <span class="stat-value" id="stat-high">—</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Window Low</span>
-            <span class="stat-value" id="stat-low">—</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Window Avg</span>
-            <span class="stat-value" id="stat-avg">—</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Demand</span>
-            <span class="stat-value" id="stat-demand">—</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">Market</span>
-            <span class="stat-value" id="stat-trend">—</span>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -256,42 +255,40 @@
   </div>
 
   <script>
-    // ========= CONFIG =========
+    // ======= EDIT THESE 2 IF NEEDED =======
     const PUBLISHED_DOC_ID = '2PACX-1vQVa4C--Jhg96w7_A0vqkTJouxLCvHOn2AT49foGzmdjcvU9DIn9a0QoEADzQ6SCDmqmuHNRZcJVmgm';
-    const DEFAULT_GID = 1273956115; // <-- if your published History tab has a different gid, change this
+    const DEFAULT_GID = 1273956115; // <-- MUST be the History tab gid you published
+    // =====================================
 
-    // ========= DISPLAY CONFIG =========
     const COMMODITIES = {
-      iceberg:   { name: 'Iceberg Lettuce', color: '#3fb950' },
-      romaine:   { name: 'Romaine Lettuce', color: '#58a6ff' },
-      hearts:    { name: 'Romaine Hearts',  color: '#a371f7' },
-      broccoli:  { name: 'Broccoli',        color: '#3fb950' },
-      cauliflower:{ name:'Cauliflower',     color: '#f0f6fc' },
-      celery:    { name: 'Celery',          color: '#7ee787' }
+      iceberg:    { name: 'Iceberg Lettuce', color: '#3fb950' },
+      romaine:    { name: 'Romaine Lettuce', color: '#58a6ff' },
+      hearts:     { name: 'Romaine Hearts',  color: '#a371f7' },
+      broccoli:   { name: 'Broccoli',        color: '#3fb950' },
+      cauliflower:{ name: 'Cauliflower',     color: '#f0f6fc' },
+      celery:     { name: 'Celery',          color: '#7ee787' }
     };
 
     const REGIONS = {
-      salinas:      { name: 'Salinas-Watsonville', season: [4,5,6,7,8,9,10,11] },
-      imperial:     { name: 'Imperial/Coachella',  season: [11,12,1,2,3] },
-      yuma:         { name: 'Yuma',                season: [11,12,1,2,3] },
-      'santa-maria':{ name: 'Santa Maria',         season: [1,2,3,4,5,6,7,8,9,10,11,12] }
+      salinas:       { name: 'Salinas-Watsonville' },
+      imperial:      { name: 'Imperial/Coachella' },
+      yuma:          { name: 'Yuma' },
+      'santa-maria': { name: 'Santa Maria' }
     };
 
     let state = { commodity: 'iceberg', region: 'auto', days: 60, data: {} };
     let mainChart = null;
     const sparkCharts = {};
 
-    // ========= HELPERS =========
-    function getUrlParam(name) {
-      const url = new URL(window.location.href);
-      return url.searchParams.get(name);
+    function debug(msg) {
+      const el = document.getElementById('debugLine');
+      if (el) el.textContent = msg;
+      console.log(msg);
     }
 
-    function buildCsvUrl() {
-      const gidParam = getUrlParam('gid');
-      const gid = gidParam ? String(gidParam) : String(DEFAULT_GID);
-      // cachebust helps GitHub Pages + Sheets caches
-      return `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_DOC_ID}/pub?gid=${encodeURIComponent(gid)}&single=true&output=csv&cachebust=${Date.now()}`;
+    function getParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
     }
 
     function getCurrentSeason() {
@@ -300,16 +297,15 @@
       return { region: 'salinas', label: 'Summer Season • Salinas' };
     }
 
-    // Auto region: prefer seasonal, but if no data there, fall back to first region with data for that commodity
     function getActiveRegion() {
       if (state.region !== 'auto') return state.region;
 
       const preferred = getCurrentSeason().region;
-      const commodityData = state.data[state.commodity] || {};
-      if (commodityData[preferred]?.length) return preferred;
+      const cd = state.data[state.commodity] || {};
+      if (cd[preferred]?.length) return preferred;
 
-      for (const r of Object.keys(commodityData)) {
-        if (commodityData[r]?.length) return r;
+      for (const r of Object.keys(cd)) {
+        if (cd[r]?.length) return r;
       }
       return preferred;
     }
@@ -318,179 +314,142 @@
       document.getElementById('noDataOverlay')?.classList.toggle('show', !!show);
     }
 
-    function parseCSVLine(line) {
-      const out = [];
-      let cur = '';
-      let inQuotes = false;
-
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-          if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-          else inQuotes = !inQuotes;
-        } else if (ch === ',' && !inQuotes) {
-          out.push(cur);
-          cur = '';
-        } else {
-          cur += ch;
-        }
-      }
-      out.push(cur);
-      return out;
-    }
-
     function normalizeDateToISO(s) {
       if (!s) return null;
       const str = String(s).trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-
-      // m/d/yyyy
       if (str.includes('/')) {
-        const parts = str.split('/');
-        if (parts.length >= 3) {
-          const mm = parts[0].padStart(2, '0');
-          const dd = parts[1].padStart(2, '0');
-          let yy = parts[2];
-          if (yy.length === 2) yy = '20' + yy;
-          return `${yy}-${mm}-${dd}`;
-        }
+        const [m,d,y] = str.split('/');
+        if (m && d && y) return `${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       }
-
       const dt = new Date(str);
       if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
       return null;
     }
 
     function mapCommodityKey(commodity, pkg) {
-      const c = String(commodity || '').toUpperCase().trim();
-      const p = String(pkg || '').toUpperCase();
-
-      // Exact USDA-style matches first
-      if (c === 'LETTUCE, ICEBERG') return 'iceberg';
-      if (c === 'LETTUCE, ROMAINE' && p.includes('HEART')) return 'hearts';
-      if (c === 'LETTUCE, ROMAINE') return 'romaine';
-      if (c === 'BROCCOLI') return 'broccoli';
-      if (c === 'CAULIFLOWER') return 'cauliflower';
-      if (c === 'CELERY') return 'celery';
-
-      // Fallback fuzzy matches
-      if (c.includes('ICEBERG')) return 'iceberg';
+      const c = String(commodity||'').toUpperCase().trim();
+      const p = String(pkg||'').toUpperCase();
+      if (c === 'LETTUCE, ICEBERG' || c.includes('ICEBERG')) return 'iceberg';
       if (c.includes('ROMAINE') && p.includes('HEART')) return 'hearts';
       if (c.includes('ROMAINE')) return 'romaine';
       if (c.includes('BROCCOLI')) return 'broccoli';
       if (c.includes('CAULIFLOWER')) return 'cauliflower';
       if (c.includes('CELERY')) return 'celery';
-
       return null;
     }
 
     function mapRegionKey(shippingPoint) {
-      const sp = String(shippingPoint || '').toUpperCase();
-
+      const sp = String(shippingPoint||'').toUpperCase();
       if (sp.includes('SALINAS') || sp.includes('WATSONVILLE')) return 'salinas';
       if (sp.includes('IMPERIAL') || sp.includes('COACHELLA')) return 'imperial';
       if (sp.includes('YUMA')) return 'yuma';
       if (sp.includes('SANTA MARIA') || sp.includes('OXNARD')) return 'santa-maria';
-
       return null;
     }
 
-    function parseHistoryCSV(csvText) {
-      const text = csvText.trim();
-      if (!text) return {};
+    // === CORS-PROOF SHEET LOAD (GVIZ via script tag) ===
+    function gvizUrl(gid) {
+      // cachebust ensures you don’t fight publish caching
+      return `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_DOC_ID}/gviz/tq?gid=${encodeURIComponent(gid)}&tqx=out:json&cachebust=${Date.now()}`;
+    }
 
-      const lines = text.split(/\r?\n/).filter(Boolean);
-      if (lines.length < 2) return {};
+    function loadGviz(gid) {
+      return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('GViz load timeout')), 12000);
 
-      const header = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+        // Intercept the GViz response call
+        window.google = window.google || {};
+        window.google.visualization = window.google.visualization || {};
+        window.google.visualization.Query = window.google.visualization.Query || {};
+        window.google.visualization.Query.setResponse = (resp) => {
+          clearTimeout(timeout);
+          resolve(resp);
+        };
+
+        const s = document.createElement('script');
+        s.src = gvizUrl(gid);
+        s.async = true;
+        s.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('GViz script failed to load'));
+        };
+        document.head.appendChild(s);
+      });
+    }
+
+    function gvizTableToData(resp) {
+      const out = {};
+      for (const c of Object.keys(COMMODITIES)) {
+        out[c] = {};
+        for (const r of Object.keys(REGIONS)) out[c][r] = [];
+      }
+
+      const table = resp?.table;
+      const cols = table?.cols || [];
+      const rows = table?.rows || [];
+      if (!cols.length || !rows.length) return out;
+
+      const header = cols.map(c => String(c.label || '').trim().toLowerCase());
       const idx = (name) => header.indexOf(String(name).toLowerCase());
 
-      // Supports BOTH schemas:
-      // (A) Date, Shipping Point, Commodity, Package, Mostly Low/High/Avg, Market, Demand
-      // (B) Date, Commodity, Shipping Point, Package, Mostly Low/High/Avg, ... Trend, etc.
-      const iDate   = idx('date');
-      const iPoint  = idx('shipping point');
-      const iComm   = idx('commodity');
-      const iPkg    = idx('package');
-      const iLow    = idx('mostly low');
-      const iHigh   = idx('mostly high');
-      const iAvg    = idx('mostly avg');
-      const iMarket = idx('market');   // optional
-      const iDemand = idx('demand');   // optional
-      const iTrend  = idx('trend');    // optional (some sheets use Trend instead of Market)
+      const iDate = idx('date');
+      const iComm = idx('commodity');
+      const iPoint = idx('shipping point');
+      const iPkg = idx('package');
+      const iAvg = idx('mostly avg');
+      const iMarket = idx('market');
+      const iDemand = idx('demand');
+      const iTrend = idx('trend'); // some sheets call it Trend
 
-      if (iDate === -1 || iComm === -1 || iPoint === -1 || iAvg === -1) {
-        return {}; // missing required columns
-      }
+      if (iDate === -1 || iComm === -1 || iPoint === -1 || iAvg === -1) return out;
 
-      const data = {};
-      for (const c of Object.keys(COMMODITIES)) {
-        data[c] = {};
-        for (const r of Object.keys(REGIONS)) data[c][r] = [];
-      }
+      for (const r of rows) {
+        const cells = r.c || [];
+        const get = (i) => (cells[i] ? (cells[i].v ?? cells[i].f ?? '') : '');
 
-      for (let li = 1; li < lines.length; li++) {
-        const row = parseCSVLine(lines[li]);
-
-        const dateStr = normalizeDateToISO(row[iDate]);
-        const commodity = row[iComm];
-        const shippingPoint = row[iPoint];
-        const pkg = iPkg !== -1 ? row[iPkg] : '';
-
-        if (!dateStr || !commodity || !shippingPoint) continue;
+        const dateISO = normalizeDateToISO(get(iDate));
+        const commodity = get(iComm);
+        const point = get(iPoint);
+        const pkg = iPkg !== -1 ? get(iPkg) : '';
 
         const commodityKey = mapCommodityKey(commodity, pkg);
-        const regionKey = mapRegionKey(shippingPoint);
-        if (!commodityKey || !regionKey) continue;
+        const regionKey = mapRegionKey(point);
+        const avg = Number(get(iAvg));
 
-        const avgN = Number(row[iAvg]);
-        if (!Number.isFinite(avgN) || avgN <= 0) continue;
+        if (!dateISO || !commodityKey || !regionKey || !Number.isFinite(avg) || avg <= 0) continue;
 
-        const lowN = iLow !== -1 ? Number(row[iLow]) : NaN;
-        const highN = iHigh !== -1 ? Number(row[iHigh]) : NaN;
+        const trend = (iMarket !== -1 ? String(get(iMarket)||'') : '') || (iTrend !== -1 ? String(get(iTrend)||'') : '');
+        const demand = iDemand !== -1 ? String(get(iDemand)||'') : '';
 
-        const marketVal =
-          (iMarket !== -1 ? String(row[iMarket] || '').trim() : '') ||
-          (iTrend !== -1 ? String(row[iTrend] || '').trim() : '');
-
-        const demandVal = iDemand !== -1 ? String(row[iDemand] || '').trim() : '';
-
-        data[commodityKey][regionKey].push({
-          date: dateStr,
-          low: Number.isFinite(lowN) ? lowN : avgN,
-          high: Number.isFinite(highN) ? highN : avgN,
-          avg: avgN,
-          trend: marketVal,
-          demand: demandVal
+        out[commodityKey][regionKey].push({
+          date: dateISO,
+          avg,
+          trend: String(trend).trim(),
+          demand: String(demand).trim()
         });
       }
 
-      for (const c of Object.keys(data)) {
-        for (const r of Object.keys(data[c])) {
-          data[c][r].sort((a,b) => new Date(a.date) - new Date(b.date));
+      for (const c of Object.keys(out)) {
+        for (const r of Object.keys(out[c])) {
+          out[c][r].sort((a,b) => new Date(a.date) - new Date(b.date));
         }
       }
-      return data;
+      return out;
     }
 
     async function fetchData() {
-      const url = buildCsvUrl();
-      try {
-        const res = await fetch(url, { cache: 'no-store' });
-        const text = await res.text();
-        const parsed = parseHistoryCSV(text);
-        return parsed;
-      } catch (e) {
-        console.error('Fetch failed:', e);
-        return {};
-      }
+      const gid = getParam('gid') || DEFAULT_GID;
+      debug(`Loading History via GViz… gid=${gid}`);
+      const resp = await loadGviz(gid);
+      const data = gvizTableToData(resp);
+      const totalRows = Object.values(data).flatMap(x => Object.values(x)).reduce((s,arr)=>s+arr.length,0);
+      debug(`Loaded rows: ${totalRows}`);
+      return data;
     }
 
-    // ========= CHART RENDERING =========
     function renderMainChart() {
-      const canvas = document.getElementById('mainChart');
-      const ctx = canvas.getContext('2d');
-
+      const ctx = document.getElementById('mainChart').getContext('2d');
       const region = getActiveRegion();
       const series = state.data[state.commodity]?.[region] || [];
 
@@ -500,15 +459,13 @@
 
       if (mainChart) mainChart.destroy();
 
-      if (filtered.length === 0) {
+      if (!filtered.length) {
         showNoData(true);
         return;
       }
       showNoData(false);
 
-      const gradient = ctx.createLinearGradient(0, 0, 0, 420);
-      gradient.addColorStop(0, COMMODITIES[state.commodity].color + '40');
-      gradient.addColorStop(1, COMMODITIES[state.commodity].color + '00');
+      const color = COMMODITIES[state.commodity].color;
 
       mainChart = new Chart(ctx, {
         type: 'line',
@@ -517,110 +474,43 @@
           datasets: [{
             label: 'Mostly Avg',
             data: filtered.map(d => d.avg),
-            borderColor: COMMODITIES[state.commodity].color,
-            backgroundColor: gradient,
+            borderColor: color,
             borderWidth: 2.5,
-            fill: true,
+            fill: false,
             tension: 0.35,
             pointRadius: filtered.length === 1 ? 4 : 0,
-            pointHoverRadius: 6,
-            pointHoverBackgroundColor: COMMODITIES[state.commodity].color
+            pointHoverRadius: 6
           }]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          interaction: { intersect: false, mode: 'index' },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#21262d',
-              titleColor: '#f0f6fc',
-              bodyColor: '#8b949e',
-              borderColor: '#30363d',
-              borderWidth: 1,
-              padding: 12,
-              displayColors: false,
-              callbacks: {
-                title: (items) =>
-                  new Date(items[0].label).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }),
-                label: (item) => `Avg: $${Number(item.raw).toFixed(2)}`
-              }
-            }
-          },
+          plugins: { legend: { display: false } },
           scales: {
-            x: {
-              type: 'time',
-              time: { unit: state.days <= 60 ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM' } },
-              grid: { color: 'rgba(48, 54, 61, 0.5)', drawBorder: false },
-              ticks: { color: '#6e7681', maxTicksLimit: 8 }
-            },
-            y: {
-              position: 'right',
-              grid: { color: 'rgba(48, 54, 61, 0.5)', drawBorder: false },
-              ticks: { color: '#6e7681', callback: v => '$' + v }
-            }
+            x: { type: 'time' },
+            y: { position: 'right', ticks: { callback: v => '$' + v } }
           }
         }
       });
     }
 
-    function renderSparkline(id, data, color) {
-      const canvas = document.getElementById(id);
-      if (!canvas) return;
-
-      const recent = data.slice(-30);
-      if (sparkCharts[id]) sparkCharts[id].destroy();
-
-      sparkCharts[id] = new Chart(canvas, {
-        type: 'line',
-        data: {
-          labels: recent.map(d => d.date),
-          datasets: [{
-            data: recent.map(d => d.avg),
-            borderColor: color,
-            borderWidth: 1.5,
-            fill: false,
-            tension: 0.4,
-            pointRadius: recent.length === 1 ? 3 : 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { enabled: false } },
-          scales: { x: { display: false }, y: { display: false } }
-        }
-      });
-    }
-
-    // ========= UI =========
     function updateUI() {
       const region = getActiveRegion();
       const data = state.data[state.commodity]?.[region] || [];
+      const latest = data[data.length - 1];
+      const prev = data[data.length - 2];
 
       document.getElementById('commodityName').textContent = COMMODITIES[state.commodity].name;
       document.getElementById('shippingPoint').textContent = REGIONS[region]?.name || region;
       document.getElementById('seasonLabel').textContent = getCurrentSeason().label;
       document.getElementById('lastSync').textContent = new Date().toLocaleString();
 
-      const latest = data[data.length - 1];
-      const prev = data[data.length - 2];
-
       if (!latest) {
         document.getElementById('currentPrice').textContent = '—';
         document.getElementById('priceMeta').textContent = 'No matching rows yet';
-
         const changeEl = document.getElementById('priceChange');
         changeEl.className = 'price-change flat';
         changeEl.innerHTML = `<span>→</span><span>—</span>`;
-
-        document.getElementById('stat-high').textContent = '—';
-        document.getElementById('stat-low').textContent  = '—';
-        document.getElementById('stat-avg').textContent  = '—';
-        document.getElementById('stat-demand').textContent = '—';
-        document.getElementById('stat-trend').textContent  = '—';
-
         renderMainChart();
         return;
       }
@@ -639,61 +529,13 @@
         changeEl.innerHTML = `<span>${arrow}</span><span>$${Math.abs(change).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)</span>`;
       }
 
-      const metaParts = [];
-      if (latest.demand) metaParts.push(`${latest.demand} demand`);
-      if (latest.trend) metaParts.push(latest.trend);
-      metaParts.push(`Updated ${new Date(latest.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`);
-      document.getElementById('priceMeta').textContent = metaParts.join(' • ');
-
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - state.days);
-      const period = data.filter(d => new Date(d.date) >= cutoff);
-
-      if (period.length > 0) {
-        const avgs = period.map(d => d.avg);
-        document.getElementById('stat-high').textContent = `$${Math.max(...avgs).toFixed(2)}`;
-        document.getElementById('stat-low').textContent  = `$${Math.min(...avgs).toFixed(2)}`;
-        document.getElementById('stat-avg').textContent  = `$${(avgs.reduce((s,v)=>s+v,0)/avgs.length).toFixed(2)}`;
-      }
-
-      document.getElementById('stat-demand').textContent = latest.demand || '—';
-      document.getElementById('stat-trend').textContent  = latest.trend || '—';
+      const bits = [];
+      if (latest.demand) bits.push(`${latest.demand} demand`);
+      if (latest.trend) bits.push(latest.trend);
+      bits.push(`Updated ${new Date(latest.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`);
+      document.getElementById('priceMeta').textContent = bits.join(' • ');
 
       renderMainChart();
-    }
-
-    function updateCards() {
-      const region = getActiveRegion();
-      ['iceberg','romaine','hearts'].forEach(c => {
-        const data = state.data[c]?.[region] || [];
-        const latest = data[data.length - 1];
-        const prev = data[data.length - 2];
-
-        const priceEl = document.getElementById(`price-${c}`);
-        const badgeEl = document.getElementById(`badge-${c}`);
-
-        if (!latest) {
-          if (priceEl) priceEl.textContent = '—';
-          if (badgeEl) { badgeEl.className = 'card-badge flat'; badgeEl.textContent = '—'; }
-          if (data.length > 0) renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
-          return;
-        }
-
-        if (priceEl) priceEl.textContent = `$${latest.avg.toFixed(2)}`;
-
-        if (badgeEl) {
-          if (!prev) {
-            badgeEl.className = 'card-badge flat';
-            badgeEl.textContent = '—';
-          } else {
-            const changePct = ((latest.avg - prev.avg) / prev.avg) * 100;
-            badgeEl.className = 'card-badge ' + (changePct > 0.1 ? 'up' : changePct < -0.1 ? 'down' : 'flat');
-            badgeEl.textContent = `${changePct >= 0 ? '+' : ''}${changePct.toFixed(1)}%`;
-          }
-        }
-
-        renderSparkline(`spark-${c}`, data, COMMODITIES[c].color);
-      });
     }
 
     function setupEvents() {
@@ -701,28 +543,7 @@
         tab.addEventListener('click', () => {
           document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
-
           state.commodity = tab.dataset.commodity;
-
-          document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
-          document.querySelector(`.price-card[data-commodity="${state.commodity}"]`)?.classList.add('active');
-
-          updateUI();
-        });
-      });
-
-      document.querySelectorAll('.price-card').forEach(card => {
-        card.addEventListener('click', () => {
-          const c = card.dataset.commodity;
-          if (!c) return;
-
-          document.querySelectorAll('.price-card').forEach(p => p.classList.remove('active'));
-          card.classList.add('active');
-
-          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-          document.querySelector(`.tab[data-commodity="${c}"]`)?.classList.add('active');
-
-          state.commodity = c;
           updateUI();
         });
       });
@@ -739,15 +560,15 @@
       document.getElementById('regionSelect').addEventListener('change', e => {
         state.region = e.target.value;
         updateUI();
-        updateCards();
       });
     }
 
     async function init() {
-      state.data = await fetchData();
       setupEvents();
+      state.data = await fetchData();
+
+      // quick sanity: if auto region has nothing, still show some region if any exists
       updateUI();
-      updateCards();
     }
 
     init();
