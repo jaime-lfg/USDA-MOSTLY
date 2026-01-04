@@ -19,7 +19,7 @@
     .change.flat { color:#8b949e; }
     .meta { color:#8b949e; font-size:.85rem; margin-top:6px; }
     .chart-wrap { height:420px; background:#161b22; border:1px solid #30363d; border-radius:12px; padding:16px; }
-    .debug { margin-top:12px; font-size:12px; color:#8b949e; white-space:pre-wrap; }
+    .debug { margin-top:12px; font-size:12px; color:#8b949e; white-space:pre-wrap; word-break:break-word; }
   </style>
 </head>
 
@@ -48,11 +48,7 @@
    CONFIG
    ========================= */
 const SHEET_ID = '1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY';
-
-// ✅ IMPORTANT: set this to the tab that actually contains rows
-// Your earlier “backend” link uses gid=1915657295 — that’s likely the real one.
-const HISTORY_GID = 1915657295;
-
+const HISTORY_GID = 1915657295; // the tab you're targeting now
 /* ========================= */
 
 let chart = null;
@@ -63,6 +59,7 @@ function debug(msg) {
 }
 
 function gvizUrl(cb) {
+  // headers=1 helps but doesn't always guarantee labels
   return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${HISTORY_GID}&headers=1&tqx=out:json;responseHandler:${cb}&cachebust=${Date.now()}`;
 }
 
@@ -81,10 +78,9 @@ function loadGViz() {
     const script = document.createElement('script');
     script.src = gvizUrl(cb);
     script.async = true;
-    script.onerror = () => { cleanup(); reject(new Error('GViz load failed (sheet not shared "Anyone with the link"?)')); };
+    script.onerror = () => { cleanup(); reject(new Error('GViz load failed (sheet not shared "Anyone with link" or bad gid)')); };
 
     const timeout = setTimeout(() => { cleanup(); reject(new Error('GViz timeout')); }, 12000);
-
     document.head.appendChild(script);
   });
 }
@@ -106,42 +102,99 @@ function normalizeDate(v) {
   return null;
 }
 
+function normHeader(h) {
+  return String(h || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_\-]+/g, '');
+}
+
+function findIndexByCandidates(cols, candidates) {
+  const normalized = cols.map(c => normHeader(c));
+  for (const cand of candidates) {
+    const i = normalized.indexOf(normHeader(cand));
+    if (i !== -1) return i;
+  }
+  return -1;
+}
+
+function getCell(row, i) {
+  const c = row?.c?.[i];
+  if (!c) return '';
+  return c.v ?? c.f ?? '';
+}
+
 function parseGViz(resp) {
   const table = resp?.table;
   if (!table) throw new Error('No table in GViz response');
 
-  const cols = (table.cols || []).map(c => c.label || c.id || '');
+  const colsRaw = (table.cols || []).map(c => c.label || c.id || '');
   const rows = table.rows || [];
 
-  const colsDebug = cols.map((c,i)=>`[${i}] "${c}"`).join('  ');
-  debug(`GViz response ✅\nGID: ${HISTORY_GID}\nColumns: ${colsDebug}\nRow count: ${rows.length}`);
+  const colsDebug = colsRaw.map((c,i)=>`[${i}] "${c}"`).join('  ');
 
-  // Find indices by label (your tab uses these exact labels)
-  const idx = (name) => cols.findIndex(c => String(c).trim().toLowerCase() === name);
+  // Candidate header names for Date
+  const dateCandidates = ['date', 'reportdate', 'pricedate', 'day'];
 
-  const iDate = idx('date');
-  const iAvg  = idx('mostly avg');
+  // Candidate header names for Mostly Avg
+  const avgCandidates = [
+    'mostlyavg', 'mostly avg', 'mostlyaverage', 'mostly average',
+    'avg', 'price', 'mostly'
+  ];
 
-  if (iDate === -1 || iAvg === -1) {
-    throw new Error('Required columns missing (Date, Mostly Avg)');
+  // Find columns by name
+  let iDate = findIndexByCandidates(colsRaw, dateCandidates);
+  let iAvg  = findIndexByCandidates(colsRaw, avgCandidates);
+
+  // If GViz didn't label headers, sometimes the FIRST ROW contains the headers as values.
+  // Detect that and re-map.
+  if ((iDate === -1 || iAvg === -1) && rows.length > 0) {
+    const firstRowValues = colsRaw.map((_, idx) => String(getCell(rows[0], idx)).trim());
+    const firstRowNorm = firstRowValues.map(v => normHeader(v));
+
+    const dateIdxFromRow = firstRowNorm.indexOf(normHeader('date'));
+    const avgIdxFromRow  = firstRowNorm.indexOf(normHeader('mostly avg'));
+
+    if (dateIdxFromRow !== -1 && avgIdxFromRow !== -1) {
+      iDate = dateIdxFromRow;
+      iAvg = avgIdxFromRow;
+
+      // Drop the header row from data
+      rows.shift();
+    }
   }
+
+  // FINAL fallback by position:
+  // If this tab is your “raw History” tab: A=Date, G=Mostly Avg (index 0 and 6)
+  if (iDate === -1) iDate = 0;
+  if (iAvg === -1) iAvg = 6;
+
+  debug(
+`GViz response ✅
+GID: ${HISTORY_GID}
+Columns: ${colsDebug}
+Row count: ${rows.length}
+Using Date col index: ${iDate}
+Using Avg col index:  ${iAvg}`
+  );
 
   const data = [];
   for (const r of rows) {
-    const cells = r.c || [];
-    const dateVal = cells[iDate]?.v ?? cells[iDate]?.f ?? '';
-    const avgVal  = cells[iAvg]?.v  ?? cells[iAvg]?.f  ?? '';
-
-    const date = normalizeDate(dateVal);
-    const avg = Number(avgVal);
-
+    const date = normalizeDate(getCell(r, iDate));
+    const avg = Number(getCell(r, iAvg));
     if (date && Number.isFinite(avg) && avg > 0) data.push({ date, avg });
   }
 
   data.sort((a,b) => new Date(a.date) - new Date(b.date));
 
-  const sample = data.slice(-3).map(d => `${d.date}=$${d.avg}`).join(', ') || '(none)';
-  debug(`GViz response ✅\nGID: ${HISTORY_GID}\nColumns: ${colsDebug}\nParsed rows: ${data.length}\nSample: ${sample}`);
+  const sample = data.slice(-5).map(d => `${d.date}=$${d.avg}`).join(', ') || '(none)';
+  debug(
+`GViz response ✅
+GID: ${HISTORY_GID}
+Columns: ${colsDebug}
+Parsed rows: ${data.length}
+Sample: ${sample}`
+  );
 
   return data;
 }
@@ -150,7 +203,7 @@ function render(data) {
   if (!data.length) {
     document.getElementById('currentPrice').textContent = '—';
     document.getElementById('priceChange').textContent = '—';
-    document.getElementById('priceMeta').textContent = 'No rows parsed (wrong gid or tab is empty)';
+    document.getElementById('priceMeta').textContent = 'No rows parsed (wrong gid, empty tab, or avg column not numeric)';
     return;
   }
 
@@ -202,7 +255,7 @@ function render(data) {
 }
 
 async function init() {
-  debug(`Loading History via GViz… gid=${HISTORY_GID}`);
+  debug(`Loading tab gid=${HISTORY_GID} via GViz…`);
   try {
     const resp = await loadGViz();
     const data = parseGViz(resp);
