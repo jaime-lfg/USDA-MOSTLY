@@ -381,6 +381,7 @@
             return state.region === 'auto' ? getCurrentSeason().region : state.region;
         }
         
+        // UPDATE YOUR SHEET URL HERE
         const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
         
         async function fetchData() {
@@ -454,7 +455,14 @@
                     if (date instanceof Date) {
                         dateStr = date.toISOString().split('T')[0];
                     } else if (typeof date === 'string') {
-                        if (date.includes('/')) {
+                        // Handle Google Sheets Date(year,month,day) format
+                        const gDateMatch = date.match(/Date\((\d+),(\d+),(\d+)\)/);
+                        if (gDateMatch) {
+                            const year = gDateMatch[1];
+                            const month = String(parseInt(gDateMatch[2]) + 1).padStart(2, '0');
+                            const day = gDateMatch[3].padStart(2, '0');
+                            dateStr = `${year}-${month}-${day}`;
+                        } else if (date.includes('/')) {
                             const parts = date.split('/');
                             dateStr = `${parts[2]}-${parts[0].padStart(2,'0')}-${parts[1].padStart(2,'0')}`;
                         } else {
@@ -476,9 +484,33 @@
                 }
             });
             
+            // Sort by date and deduplicate (average same-day entries)
             Object.keys(data).forEach(c => {
                 Object.keys(data[c]).forEach(r => {
-                    data[c][r].sort((a, b) => new Date(a.date) - new Date(b.date));
+                    // Group by date
+                    const byDate = {};
+                    data[c][r].forEach(entry => {
+                        if (!byDate[entry.date]) {
+                            byDate[entry.date] = [];
+                        }
+                        byDate[entry.date].push(entry);
+                    });
+                    
+                    // Average each day's entries
+                    data[c][r] = Object.keys(byDate).sort().map(date => {
+                        const entries = byDate[date];
+                        const avgLow = entries.reduce((s, e) => s + e.low, 0) / entries.length;
+                        const avgHigh = entries.reduce((s, e) => s + e.high, 0) / entries.length;
+                        const avgAvg = entries.reduce((s, e) => s + e.avg, 0) / entries.length;
+                        return {
+                            date: date,
+                            low: Math.round(avgLow * 100) / 100,
+                            high: Math.round(avgHigh * 100) / 100,
+                            avg: Math.round(avgAvg * 100) / 100,
+                            demand: entries[0].demand,
+                            trend: entries[0].trend
+                        };
+                    });
                 });
             });
             
@@ -495,6 +527,7 @@
             
             if (mainChart) mainChart.destroy();
             
+            // If no data, show empty chart
             if (filtered.length === 0) {
                 mainChart = new Chart(ctx, {
                     type: 'line',
@@ -502,8 +535,14 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-                        scales: { x: { display: false }, y: { display: false } }
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { enabled: false }
+                        },
+                        scales: {
+                            x: { display: false },
+                            y: { display: false }
+                        }
                     }
                 });
                 return;
@@ -675,6 +714,7 @@
                     document.getElementById('stat-trend').textContent = latest.trend || '--';
                 }
             } else {
+                // No data for this region/commodity
                 priceEl.textContent = 'No data';
                 priceEl.className = 'price-value no-data';
                 changeEl.style.display = 'none';
