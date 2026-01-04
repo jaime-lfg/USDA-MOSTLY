@@ -445,18 +445,33 @@
                 if (!date || !commodity) return;
                 let commodityKey = null;
                 const upperComm = String(commodity).toUpperCase();
-                if (upperComm.includes('ICEBERG')) commodityKey = 'iceberg';
-                else if (upperComm.includes('ROMAINE') && upperComm.includes('HEART')) commodityKey = 'hearts';
-                else if (upperComm.includes('ROMAINE')) commodityKey = 'romaine';
-                else if (upperComm.includes('BROCCOLI')) commodityKey = 'broccoli';
-                else if (upperComm.includes('CAULIFLOWER')) commodityKey = 'cauliflower';
-                else if (upperComm.includes('CELERY')) commodityKey = 'celery';
+                const upperPkg = String(pkg).toUpperCase();
+                if (upperComm.includes('ROMAINE') && upperPkg.includes('HEART')) {
+                    commodityKey = 'hearts';
+                } else if (upperComm.includes('ICEBERG')) {
+                    commodityKey = 'iceberg';
+                } else if (upperComm.includes('ROMAINE')) {
+                    commodityKey = 'romaine';
+                } else if (upperComm.includes('BROCCOLI')) {
+                    commodityKey = 'broccoli';
+                } else if (upperComm.includes('CAULIFLOWER')) {
+                    commodityKey = 'cauliflower';
+                } else if (upperComm.includes('CELERY')) {
+                    commodityKey = 'celery';
+                }
                 let regionKey = null;
                 const upperPoint = String(point).toUpperCase();
-                if (upperPoint.includes('SALINAS')) regionKey = 'salinas';
-                else if (upperPoint.includes('IMPERIAL') || upperPoint.includes('COACHELLA')) regionKey = 'imperial';
-                else if (upperPoint.includes('YUMA')) regionKey = 'yuma';
-                else if (upperPoint.includes('SANTA MARIA')) regionKey = 'santa-maria';
+                if (upperPoint.includes('SALINAS') || upperPoint.includes('WATSONVILLE')) {
+                    regionKey = 'salinas';
+                } else if (upperPoint.includes('IMPERIAL') || upperPoint.includes('COACHELLA')) {
+                    regionKey = 'imperial';
+                } else if (upperPoint.includes('YUMA')) {
+                    regionKey = 'yuma';
+                } else if (upperPoint.includes('SANTA MARIA')) {
+                    regionKey = 'santa-maria';
+                } else if (upperPoint.includes('OXNARD')) {
+                    regionKey = 'santa-maria';
+                }
                 if (commodityKey && regionKey && data[commodityKey]?.[regionKey]) {
                     let dateStr = date;
                     if (typeof date === 'object' && date instanceof Date) {
@@ -481,7 +496,12 @@
                 });
             });
             const hasData = Object.values(data).some(c => Object.values(c).some(r => r.length > 0));
-            return hasData ? data : generateSampleData();
+            if (hasData) {
+                console.log('Loaded real data from sheet');
+                return data;
+            }
+            console.log('No data found, using sample data');
+            return generateSampleData();
         }
         function renderMainChart() {
             const ctx = document.getElementById('mainChart').getContext('2d');
