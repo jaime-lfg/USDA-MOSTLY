@@ -9,635 +9,237 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
 
   <style>
-    :root {
-      --bg-primary: #0d1117;
-      --bg-secondary: #161b22;
-      --bg-card: #21262d;
-      --bg-hover: #30363d;
-      --text-primary: #f0f6fc;
-      --text-secondary: #8b949e;
-      --text-muted: #6e7681;
-      --green: #3fb950;
-      --green-dim: rgba(63, 185, 80, 0.15);
-      --red: #f85149;
-      --red-dim: rgba(248, 81, 73, 0.15);
-      --blue: #58a6ff;
-      --blue-dim: rgba(88, 166, 255, 0.15);
-      --border: #30363d;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      min-height: 100vh;
-      line-height: 1.5;
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+      background: #0d1117;
+      color: #f0f6fc;
     }
-    .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+    .container {
+      max-width: 1200px;
+      margin: auto;
+      padding: 20px;
+    }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid #30363d;
+      padding-bottom: 16px;
       margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 16px;
     }
-    .logo { display: flex; align-items: center; gap: 12px; }
-    .logo-icon { font-size: 32px; }
-    .logo-text h1 { font-size: 1.4rem; font-weight: 600; }
-    .logo-text span { color: var(--text-muted); font-size: 0.8rem; }
-    .season-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      background: var(--blue-dim);
-      border: 1px solid var(--blue);
-      border-radius: 20px;
-      font-size: 0.75rem;
-      color: var(--blue);
-      font-weight: 500;
+    h1 {
+      margin: 0;
+      font-size: 1.4rem;
     }
-    .season-badge .dot {
-      width: 8px; height: 8px;
-      background: var(--blue);
-      border-radius: 50%;
-      animation: pulse 2s infinite;
+    .price {
+      font-size: 2.8rem;
+      font-weight: 700;
     }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
-    .commodity-tabs { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
-    .tab {
-      padding: 10px 18px;
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text-secondary);
+    .change.up { color: #3fb950; }
+    .change.down { color: #f85149; }
+    .change.flat { color: #8b949e; }
+    .meta {
+      color: #8b949e;
       font-size: 0.85rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s;
+      margin-top: 6px;
     }
-    .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
-    .tab.active { background: var(--green-dim); border-color: var(--green); color: var(--green); }
-
-    .main-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
-    @media (max-width: 1024px) { .main-layout { grid-template-columns: 1fr; } }
-
-    .chart-section {
-      background: var(--bg-secondary);
-      border: 1px solid var(--border);
+    .chart-wrap {
+      height: 420px;
+      background: #161b22;
+      border: 1px solid #30363d;
       border-radius: 12px;
-      padding: 24px;
+      padding: 16px;
     }
-    .chart-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-    .price-display h2 {
-      font-size: 0.9rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .shipping-point {
-      font-size: 0.75rem;
-      padding: 3px 8px;
-      background: var(--bg-hover);
-      border-radius: 4px;
-      color: var(--text-muted);
-    }
-    .price-row { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
-    .price-value { font-size: 2.8rem; font-weight: 700; letter-spacing: -2px; }
-    .price-change {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      font-weight: 600;
-    }
-    .price-change.up { background: var(--green-dim); color: var(--green); }
-    .price-change.down { background: var(--red-dim); color: var(--red); }
-    .price-change.flat { background: var(--bg-hover); color: var(--text-secondary); }
-    .price-meta { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; }
-
-    .time-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
-    .time-range { display: flex; background: var(--bg-card); border-radius: 8px; padding: 3px; gap: 2px; }
-    .time-btn {
-      padding: 6px 14px;
-      background: transparent;
-      border: none;
-      border-radius: 6px;
-      color: var(--text-secondary);
-      font-size: 0.8rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .time-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
-    .time-btn.active { background: var(--bg-hover); color: var(--text-primary); }
-    .region-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted); }
-    .region-toggle select {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 4px 8px;
-      color: var(--text-primary);
-      font-size: 0.75rem;
-      cursor: pointer;
-    }
-
-    .chart-container { position: relative; height: 420px; margin-top: 16px; }
-    .no-data {
-      position: absolute; inset: 0;
-      display: none; align-items: center; justify-content: center;
-      text-align: center; padding: 24px;
-      color: var(--text-muted);
-    }
-    .no-data.show { display: flex; }
-
-    .sidebar { display: flex; flex-direction: column; gap: 16px; }
-
-    footer {
-      margin-top: 32px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    .footer-text { font-size: 0.75rem; color: var(--text-muted); }
-    .footer-text a { color: var(--blue); text-decoration: none; }
-
     .debug {
-      margin-top: 8px;
+      margin-top: 12px;
       font-size: 12px;
-      color: var(--text-muted);
-      max-width: 520px;
+      color: #8b949e;
       word-break: break-word;
     }
   </style>
 </head>
 
 <body>
-  <div class="container">
-    <header>
-      <div class="logo">
-        <span class="logo-icon">🥬</span>
-        <div class="logo-text">
-          <h1>FOB Produce Prices</h1>
-          <span>USDA Market News • MOSTLY Avg</span>
-        </div>
-      </div>
-      <div class="season-badge">
-        <span class="dot"></span>
-        <span id="seasonLabel">—</span>
-      </div>
-    </header>
+<div class="container">
 
-    <div class="commodity-tabs">
-      <button class="tab active" data-commodity="iceberg">Iceberg Lettuce</button>
-      <button class="tab" data-commodity="romaine">Romaine Lettuce</button>
-      <button class="tab" data-commodity="hearts">Romaine Hearts</button>
-      <button class="tab" data-commodity="broccoli">Broccoli</button>
-      <button class="tab" data-commodity="cauliflower">Cauliflower</button>
-      <button class="tab" data-commodity="celery">Celery</button>
-    </div>
+  <header>
+    <h1>🥬 USDA FOB — Mostly Avg</h1>
+    <div id="lastSync" class="meta">—</div>
+  </header>
 
-    <div class="main-layout">
-      <div class="chart-section">
-        <div class="chart-header">
-          <div class="price-display">
-            <h2>
-              <span id="commodityName">Iceberg Lettuce</span>
-              <span class="shipping-point" id="shippingPoint">—</span>
-            </h2>
-            <div class="price-row">
-              <span class="price-value" id="currentPrice">—</span>
-              <span class="price-change flat" id="priceChange"><span>→</span><span>—</span></span>
-            </div>
-            <div class="price-meta" id="priceMeta">Waiting for data…</div>
-            <div class="debug" id="debugLine">Booting…</div>
-          </div>
-
-          <div class="time-controls">
-            <div class="time-range">
-              <button class="time-btn" data-days="30">30D</button>
-              <button class="time-btn active" data-days="60">60D</button>
-              <button class="time-btn" data-days="90">90D</button>
-              <button class="time-btn" data-days="180">6M</button>
-              <button class="time-btn" data-days="365">1Y</button>
-            </div>
-            <div class="region-toggle">
-              <span>Region:</span>
-              <select id="regionSelect">
-                <option value="auto">Auto (Smart)</option>
-                <option value="salinas">Salinas</option>
-                <option value="imperial">Imperial/Coachella</option>
-                <option value="yuma">Yuma</option>
-                <option value="santa-maria">Santa Maria</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div class="chart-container">
-          <canvas id="mainChart"></canvas>
-          <div id="noDataOverlay" class="no-data">
-            No matching rows found for this commodity/region yet.<br/>
-            (Or your published History tab has no rows.)
-          </div>
-        </div>
-      </div>
-
-      <div class="sidebar"></div>
-    </div>
-
-    <footer>
-      <div class="footer-text">
-        Data: <a href="https://www.ams.usda.gov/mnreports/fvdfob.pdf" target="_blank" rel="noreferrer">USDA AMS National FOB Review</a> • Using “Mostly Avg”
-      </div>
-      <div class="footer-text">Last sync: <span id="lastSync">--</span></div>
-    </footer>
+  <div>
+    <div class="price" id="currentPrice">—</div>
+    <div class="change flat" id="priceChange">—</div>
+    <div class="meta" id="priceMeta">Waiting for data…</div>
   </div>
 
-  <script>
-    // =============================
-    // EDIT THESE IF NEEDED
-    // =============================
-    const SHEET_ID = '1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY'; // your actual sheet id
-    const HISTORY_GID = 1273956115; // your History tab gid
-    const PUBLISHED_DOC_ID = '2PACX-1vQVa4C--Jhg96w7_A0vqkTJouxLCvHOn2AT49foGzmdjcvU9DIn9a0QoEADzQ6SCDmqmuHNRZcJVmgm';
-    // =============================
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
 
-    const COMMODITIES = {
-      iceberg:    { name: 'Iceberg Lettuce', color: '#3fb950' },
-      romaine:    { name: 'Romaine Lettuce', color: '#58a6ff' },
-      hearts:     { name: 'Romaine Hearts',  color: '#a371f7' },
-      broccoli:   { name: 'Broccoli',        color: '#3fb950' },
-      cauliflower:{ name: 'Cauliflower',     color: '#f0f6fc' },
-      celery:     { name: 'Celery',          color: '#7ee787' }
+  <div class="debug" id="debug">Booting…</div>
+
+</div>
+
+<script>
+/* =========================
+   CONFIG — EDIT IF NEEDED
+   ========================= */
+const SHEET_ID = '1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY';
+const HISTORY_GID = 1273956115; // History tab
+
+/* ========================= */
+
+let chart = null;
+
+function debug(msg) {
+  document.getElementById('debug').textContent = msg;
+  console.log(msg);
+}
+
+function gvizUrl(cb) {
+  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${HISTORY_GID}&tqx=out:json;responseHandler:${cb}&cachebust=${Date.now()}`;
+}
+
+function loadGViz() {
+  return new Promise((resolve, reject) => {
+    const cb = `gviz_cb_${Math.random().toString(16).slice(2)}`;
+    window[cb] = (resp) => {
+      cleanup();
+      resolve(resp);
     };
 
-    const REGIONS = {
-      salinas:       { name: 'Salinas-Watsonville' },
-      imperial:      { name: 'Imperial/Coachella' },
-      yuma:          { name: 'Yuma' },
-      'santa-maria': { name: 'Santa Maria' }
+    function cleanup() {
+      delete window[cb];
+      script.remove();
+      clearTimeout(timeout);
+    }
+
+    const script = document.createElement('script');
+    script.src = gvizUrl(cb);
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('GViz load failed (sheet not public?)'));
     };
 
-    let state = { commodity: 'iceberg', region: 'auto', days: 60, data: {} };
-    let mainChart = null;
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('GViz timeout'));
+    }, 10000);
 
-    function debug(msg) {
-      const el = document.getElementById('debugLine');
-      if (el) el.textContent = msg;
-      console.log(msg);
-    }
+    document.head.appendChild(script);
+  });
+}
 
-    function getParam(name) {
-      const url = new URL(window.location.href);
-      return url.searchParams.get(name);
-    }
+function normalizeDate(v) {
+  if (!v) return null;
+  if (typeof v === 'string' && v.includes('/')) {
+    const [m, d, y] = v.split('/');
+    return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+  }
+  const dt = new Date(v);
+  if (!isNaN(dt)) return dt.toISOString().slice(0,10);
+  return null;
+}
 
-    function getCurrentSeason() {
-      const month = new Date().getMonth() + 1;
-      if ([11,12,1,2,3].includes(month)) return { region: 'imperial', label: 'Winter Season • Imperial/Yuma' };
-      return { region: 'salinas', label: 'Summer Season • Salinas' };
-    }
+function parseGViz(resp) {
+  const cols = resp.table.cols.map(c => c.label.toLowerCase());
+  const rows = resp.table.rows;
 
-    function getActiveRegion() {
-      if (state.region !== 'auto') return state.region;
-      const preferred = getCurrentSeason().region;
-      const cd = state.data[state.commodity] || {};
-      if (cd[preferred]?.length) return preferred;
-      for (const r of Object.keys(cd)) if (cd[r]?.length) return r;
-      return preferred;
-    }
+  const idx = name => cols.indexOf(name);
 
-    function showNoData(show) {
-      document.getElementById('noDataOverlay')?.classList.toggle('show', !!show);
-    }
+  const iDate = idx('date');
+  const iAvg = idx('mostly avg');
 
-    function normalizeDateToISO(s) {
-      if (!s) return null;
-      const str = String(s).trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-      if (str.includes('/')) {
-        const parts = str.split('/');
-        if (parts.length >= 3) {
-          const mm = parts[0].padStart(2,'0');
-          const dd = parts[1].padStart(2,'0');
-          let yy = parts[2];
-          if (yy.length === 2) yy = '20' + yy;
-          return `${yy}-${mm}-${dd}`;
+  if (iDate === -1 || iAvg === -1) {
+    throw new Error('Required columns missing (Date, Mostly Avg)');
+  }
+
+  const data = [];
+
+  rows.forEach(r => {
+    const cells = r.c;
+    const date = normalizeDate(cells[iDate]?.v);
+    const avg = Number(cells[iAvg]?.v);
+    if (date && avg > 0) data.push({ date, avg });
+  });
+
+  data.sort((a,b) => new Date(a.date) - new Date(b.date));
+  return data;
+}
+
+function render(data) {
+  if (!data.length) {
+    debug('No rows found in History tab');
+    return;
+  }
+
+  const latest = data[data.length - 1];
+  const prev = data[data.length - 2];
+
+  document.getElementById('currentPrice').textContent = `$${latest.avg.toFixed(2)}`;
+
+  const changeEl = document.getElementById('priceChange');
+  if (!prev) {
+    changeEl.textContent = '—';
+  } else {
+    const diff = latest.avg - prev.avg;
+    const pct = (diff / prev.avg) * 100;
+    changeEl.className = `change ${diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat'}`;
+    changeEl.textContent = `${diff > 0 ? '↑' : diff < 0 ? '↓' : '→'} $${Math.abs(diff).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)`;
+  }
+
+  document.getElementById('priceMeta').textContent =
+    `Updated ${new Date(latest.date).toLocaleDateString()}`;
+
+  document.getElementById('lastSync').textContent =
+    `Last sync: ${new Date().toLocaleString()}`;
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: {
+      labels: data.map(d => d.date),
+      datasets: [{
+        data: data.map(d => d.avg),
+        borderColor: '#3fb950',
+        borderWidth: 2.5,
+        tension: 0.3,
+        pointRadius: data.length === 1 ? 5 : 0
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'time' },
+        y: {
+          position: 'right',
+          ticks: { callback: v => '$' + v }
         }
       }
-      const dt = new Date(str);
-      if (!Number.isNaN(dt.getTime())) return dt.toISOString().slice(0,10);
-      return null;
     }
+  });
+}
 
-    function mapCommodityKey(commodity, pkg) {
-      const c = String(commodity||'').toUpperCase().trim();
-      const p = String(pkg||'').toUpperCase();
-      if (c === 'LETTUCE, ICEBERG' || c.includes('ICEBERG')) return 'iceberg';
-      if (c.includes('ROMAINE') && p.includes('HEART')) return 'hearts';
-      if (c.includes('ROMAINE')) return 'romaine';
-      if (c.includes('BROCCOLI')) return 'broccoli';
-      if (c.includes('CAULIFLOWER')) return 'cauliflower';
-      if (c.includes('CELERY')) return 'celery';
-      return null;
-    }
+async function init() {
+  debug('Loading History via GViz…');
+  try {
+    const resp = await loadGViz();
+    debug('GViz response received ✅');
+    const data = parseGViz(resp);
+    debug(`Parsed rows: ${data.length}`);
+    render(data);
+  } catch (e) {
+    debug('ERROR: ' + e.message);
+  }
+}
 
-    function mapRegionKey(shippingPoint) {
-      const sp = String(shippingPoint||'').toUpperCase();
-      if (sp.includes('SALINAS') || sp.includes('WATSONVILLE')) return 'salinas';
-      if (sp.includes('IMPERIAL') || sp.includes('COACHELLA')) return 'imperial';
-      if (sp.includes('YUMA')) return 'yuma';
-      if (sp.includes('SANTA MARIA') || sp.includes('OXNARD')) return 'santa-maria';
-      return null;
-    }
+init();
+</script>
 
-    // ========== GVIZ LOADER WITH responseHandler (reliable) ==========
-    function gvizUrlPublished(gid, cbName) {
-      return `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_DOC_ID}/gviz/tq?gid=${encodeURIComponent(gid)}&tqx=out:json;responseHandler:${encodeURIComponent(cbName)}&cachebust=${Date.now()}`;
-    }
-    function gvizUrlSheetId(gid, cbName) {
-      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${encodeURIComponent(gid)}&tqx=out:json;responseHandler:${encodeURIComponent(cbName)}&cachebust=${Date.now()}`;
-    }
-
-    function loadGvizAny(gid) {
-      return new Promise((resolve, reject) => {
-        const cbName = `__gviz_cb_${Math.random().toString(16).slice(2)}`;
-        let settled = false;
-
-        window[cbName] = (resp) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve(resp);
-        };
-
-        const cleanup = () => {
-          try { delete window[cbName]; } catch {}
-          if (s1 && s1.parentNode) s1.parentNode.removeChild(s1);
-          if (s2 && s2.parentNode) s2.parentNode.removeChild(s2);
-          clearTimeout(timer);
-        };
-
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error('GViz timeout (no responseHandler call)'));
-        }, 12000);
-
-        // Try published endpoint first, then fall back to /d/{SHEET_ID}
-        const s1 = document.createElement('script');
-        s1.src = gvizUrlPublished(gid, cbName);
-        s1.async = true;
-        s1.onerror = () => {
-          debug('Published GViz failed, trying SheetId GViz…');
-          // fallback script
-          const s2 = document.createElement('script');
-          s2.src = gvizUrlSheetId(gid, cbName);
-          s2.async = true;
-          s2.onerror = () => {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            reject(new Error('GViz script failed (published + sheetId)'));
-          };
-          document.head.appendChild(s2);
-          // stash s2 in closure
-          window.__last_gviz_s2 = s2;
-        };
-        document.head.appendChild(s1);
-
-        // stash for cleanup
-        window.__last_gviz_s1 = s1;
-        var s2 = null; // set via __last_gviz_s2 if needed
-      });
-    }
-
-    function gvizTableToData(resp) {
-      const out = {};
-      for (const c of Object.keys(COMMODITIES)) {
-        out[c] = {};
-        for (const r of Object.keys(REGIONS)) out[c][r] = [];
-      }
-
-      const table = resp?.table;
-      const cols = table?.cols || [];
-      const rows = table?.rows || [];
-
-      if (!cols.length) return out;
-
-      const header = cols.map(c => String(c.label || '').trim().toLowerCase());
-      const idx = (name) => header.indexOf(String(name).toLowerCase());
-
-      const iDate  = idx('date');
-      const iComm  = idx('commodity');
-      const iPoint = idx('shipping point');
-      const iPkg   = idx('package');
-      const iAvg   = idx('mostly avg');
-      const iMarket = idx('market');
-      const iDemand = idx('demand');
-      const iTrend  = idx('trend');
-
-      debug(`Headers seen: ${header.join(' | ')}`);
-
-      if (iDate === -1 || iComm === -1 || iPoint === -1 || iAvg === -1) {
-        debug('Missing required columns (need: Date, Commodity, Shipping Point, Mostly Avg).');
-        return out;
-      }
-
-      for (const r of rows) {
-        const cells = r.c || [];
-        const get = (i) => (cells[i] ? (cells[i].v ?? cells[i].f ?? '') : '');
-
-        const dateISO = normalizeDateToISO(get(iDate));
-        const commodity = get(iComm);
-        const point = get(iPoint);
-        const pkg = iPkg !== -1 ? get(iPkg) : '';
-
-        const commodityKey = mapCommodityKey(commodity, pkg);
-        const regionKey = mapRegionKey(point);
-        const avg = Number(get(iAvg));
-
-        if (!dateISO || !commodityKey || !regionKey || !Number.isFinite(avg) || avg <= 0) continue;
-
-        const trend = (iMarket !== -1 ? String(get(iMarket)||'') : '') || (iTrend !== -1 ? String(get(iTrend)||'') : '');
-        const demand = iDemand !== -1 ? String(get(iDemand)||'') : '';
-
-        out[commodityKey][regionKey].push({
-          date: dateISO,
-          avg,
-          trend: String(trend).trim(),
-          demand: String(demand).trim()
-        });
-      }
-
-      for (const c of Object.keys(out)) {
-        for (const r of Object.keys(out[c])) {
-          out[c][r].sort((a,b) => new Date(a.date) - new Date(b.date));
-        }
-      }
-
-      const total = Object.values(out).flatMap(x => Object.values(x)).reduce((s,arr)=>s+arr.length,0);
-      debug(`Parsed rows: ${total}`);
-
-      return out;
-    }
-
-    async function fetchData() {
-      const gid = getParam('gid') || HISTORY_GID;
-      debug(`Loading History via GViz… gid=${gid}`);
-      const resp = await loadGvizAny(gid);
-      return gvizTableToData(resp);
-    }
-
-    function renderMainChart() {
-      const ctx = document.getElementById('mainChart').getContext('2d');
-      const region = getActiveRegion();
-      const series = state.data[state.commodity]?.[region] || [];
-
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - state.days);
-      const filtered = series.filter(d => new Date(d.date) >= cutoff);
-
-      if (mainChart) mainChart.destroy();
-
-      if (!filtered.length) {
-        showNoData(true);
-        return;
-      }
-      showNoData(false);
-
-      const color = COMMODITIES[state.commodity].color;
-
-      mainChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: filtered.map(d => d.date),
-          datasets: [{
-            label: 'Mostly Avg',
-            data: filtered.map(d => d.avg),
-            borderColor: color,
-            borderWidth: 2.5,
-            fill: false,
-            tension: 0.35,
-            pointRadius: filtered.length === 1 ? 4 : 0,
-            pointHoverRadius: 6
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { type: 'time' },
-            y: { position: 'right', ticks: { callback: v => '$' + v } }
-          }
-        }
-      });
-    }
-
-    function updateUI() {
-      const region = getActiveRegion();
-      const data = state.data[state.commodity]?.[region] || [];
-      const latest = data[data.length - 1];
-      const prev = data[data.length - 2];
-
-      document.getElementById('commodityName').textContent = COMMODITIES[state.commodity].name;
-      document.getElementById('shippingPoint').textContent = REGIONS[region]?.name || region;
-      document.getElementById('seasonLabel').textContent = getCurrentSeason().label;
-      document.getElementById('lastSync').textContent = new Date().toLocaleString();
-
-      if (!latest) {
-        document.getElementById('currentPrice').textContent = '—';
-        document.getElementById('priceMeta').textContent = 'No matching rows yet';
-        const changeEl = document.getElementById('priceChange');
-        changeEl.className = 'price-change flat';
-        changeEl.innerHTML = `<span>→</span><span>—</span>`;
-        renderMainChart();
-        return;
-      }
-
-      document.getElementById('currentPrice').textContent = `$${latest.avg.toFixed(2)}`;
-
-      const changeEl = document.getElementById('priceChange');
-      if (!prev) {
-        changeEl.className = 'price-change flat';
-        changeEl.innerHTML = `<span>→</span><span>—</span>`;
-      } else {
-        const change = latest.avg - prev.avg;
-        const pct = (change / prev.avg) * 100;
-        changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
-        const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
-        changeEl.innerHTML = `<span>${arrow}</span><span>$${Math.abs(change).toFixed(2)} (${Math.abs(pct).toFixed(1)}%)</span>`;
-      }
-
-      const bits = [];
-      if (latest.demand) bits.push(`${latest.demand} demand`);
-      if (latest.trend) bits.push(latest.trend);
-      bits.push(`Updated ${new Date(latest.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`);
-      document.getElementById('priceMeta').textContent = bits.join(' • ');
-
-      renderMainChart();
-    }
-
-    function setupEvents() {
-      document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-          tab.classList.add('active');
-          state.commodity = tab.dataset.commodity;
-          updateUI();
-        });
-      });
-
-      document.querySelectorAll('.time-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          state.days = parseInt(btn.dataset.days, 10);
-          updateUI();
-        });
-      });
-
-      document.getElementById('regionSelect').addEventListener('change', e => {
-        state.region = e.target.value;
-        updateUI();
-      });
-    }
-
-    async function init() {
-      setupEvents();
-      try {
-        state.data = await fetchData();
-      } catch (e) {
-        debug(`ERROR: ${e.message}`);
-        showNoData(true);
-        return;
-      }
-      updateUI();
-    }
-
-    init();
-  </script>
 </body>
 </html>
