@@ -67,8 +67,7 @@
             animation: pulse 2s infinite;
         }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        
-        /* Section Toggle */
+
         .section-toggle {
             display: flex;
             gap: 4px;
@@ -95,7 +94,7 @@
         .section-btn:hover { color: var(--text-primary); }
         .section-btn.active { background: var(--bg-hover); color: var(--text-primary); }
         .section-btn .icon { font-size: 1.1rem; }
-        
+
         .commodity-tabs { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
         .tab {
             padding: 10px 18px;
@@ -111,7 +110,7 @@
         .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
         .tab.active.vegetable { background: var(--green-dim); border-color: var(--green); color: var(--green); }
         .tab.active.onion { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
-        
+
         .main-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
         @media (max-width: 1024px) { .main-layout { grid-template-columns: 1fr; } }
         .chart-section {
@@ -199,8 +198,7 @@
             cursor: pointer;
         }
         .chart-container { position: relative; height: 400px; margin-top: 16px; }
-        
-        /* Sidebar */
+
         .sidebar { display: flex; flex-direction: column; gap: 16px; }
         .sidebar-section-title {
             font-size: 0.7rem;
@@ -212,7 +210,7 @@
             margin-top: 8px;
         }
         .sidebar-section-title:first-child { margin-top: 0; }
-        
+
         .price-card {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -233,7 +231,7 @@
         .card-price { font-size: 1.5rem; font-weight: 700; margin-bottom: 4px; }
         .card-range { font-size: 0.75rem; color: var(--text-muted); }
         .card-sparkline { height: 40px; max-height: 40px; margin-top: 12px; overflow: hidden; }
-        
+
         .market-stats {
             background: var(--bg-secondary);
             border: 1px solid var(--border);
@@ -286,8 +284,7 @@
                 <span id="seasonLabel">Winter Season</span>
             </div>
         </header>
-        
-        <!-- Section Toggle -->
+
         <div class="section-toggle">
             <button class="section-btn active" data-section="vegetables">
                 <span class="icon">🥬</span> Vegetables
@@ -296,8 +293,7 @@
                 <span class="icon">🧅</span> Onions
             </button>
         </div>
-        
-        <!-- Vegetable Tabs -->
+
         <div class="commodity-tabs" id="vegTabs">
             <button class="tab vegetable active" data-commodity="iceberg">Iceberg Lettuce</button>
             <button class="tab vegetable" data-commodity="romaine">Romaine Lettuce</button>
@@ -306,14 +302,13 @@
             <button class="tab vegetable" data-commodity="cauliflower">Cauliflower</button>
             <button class="tab vegetable" data-commodity="celery">Celery</button>
         </div>
-        
-        <!-- Onion Tabs -->
+
         <div class="commodity-tabs" id="onionTabs" style="display: none;">
             <button class="tab onion active" data-commodity="onion-yellow">Yellow Onions</button>
             <button class="tab onion" data-commodity="onion-white">White Onions</button>
             <button class="tab onion" data-commodity="onion-red">Red Onions</button>
         </div>
-        
+
         <div class="main-layout">
             <div class="chart-section">
                 <div class="chart-header">
@@ -341,9 +336,7 @@
                         </div>
                         <div class="region-toggle">
                             <span>Region:</span>
-                            <select id="regionSelect">
-                                <!-- Populated by JS -->
-                            </select>
+                            <select id="regionSelect"></select>
                         </div>
                     </div>
                 </div>
@@ -351,6 +344,7 @@
                     <canvas id="mainChart"></canvas>
                 </div>
             </div>
+
             <div class="sidebar">
                 <div class="sidebar-section-title">Vegetables</div>
                 <div class="price-card vegetable active" data-commodity="iceberg" data-section="vegetables">
@@ -380,7 +374,7 @@
                     <div class="card-range">12 3-ct pkgs</div>
                     <canvas class="card-sparkline" id="spark-hearts"></canvas>
                 </div>
-                
+
                 <div class="sidebar-section-title">Onions</div>
                 <div class="price-card onion" data-commodity="onion-yellow" data-section="onions">
                     <div class="card-header">
@@ -409,7 +403,7 @@
                     <div class="card-range">25 lb sacks jumbo</div>
                     <canvas class="card-sparkline" id="spark-onion-red"></canvas>
                 </div>
-                
+
                 <div class="market-stats">
                     <div class="stats-title">Market Overview</div>
                     <div class="stat-row">
@@ -435,16 +429,17 @@
                 </div>
             </div>
         </div>
+
         <footer>
             <div class="footer-text">
-                Data: <a href="https://www.ams.usda.gov/mnreports/fvdfob.pdf" target="_blank">USDA AMS FOB Reports</a> • 
+                Data: <a href="https://www.ams.usda.gov/mnreports/fvdfob.pdf" target="_blank">USDA AMS FOB Reports</a> •
                 MOSTLY price midpoints
             </div>
             <div class="footer-text">Last sync: <span id="lastSync">--</span></div>
         </footer>
     </div>
+
     <script>
-        // Commodity definitions
         const VEGETABLES = {
             iceberg: { name: 'Iceberg Lettuce', color: '#3fb950', package: '24s cartons' },
             romaine: { name: 'Romaine Lettuce', color: '#58a6ff', package: '24s cartons' },
@@ -453,20 +448,20 @@
             cauliflower: { name: 'Cauliflower', color: '#f0f6fc', package: '12s film wrapped' },
             celery: { name: 'Celery', color: '#7ee787', package: '2-3 dz cartons' }
         };
-        
+
         const ONIONS = {
             'onion-yellow': { name: 'Yellow Onions', color: '#d29922', package: '50 lb sacks jumbo' },
             'onion-white': { name: 'White Onions', color: '#f0f6fc', package: '50 lb sacks jumbo' },
             'onion-red': { name: 'Red Onions', color: '#f85149', package: '25 lb sacks jumbo' }
         };
-        
+
         const VEG_REGIONS = {
             salinas: { name: 'Salinas-Watsonville', season: [4, 5, 6, 7, 8, 9, 10, 11] },
             imperial: { name: 'Imperial/Coachella', season: [11, 12, 1, 2, 3, 4] },
             yuma: { name: 'Yuma', season: [11, 12, 1, 2, 3] },
             'santa-maria': { name: 'Santa Maria', season: [1,2,3,4,5,6,7,8,9,10,11,12] }
         };
-        
+
         const ONION_REGIONS = {
             'idaho': { name: 'Idaho/Malheur Co. Oregon', season: [8, 9, 10, 11, 12, 1, 2, 3, 4] },
             'columbia-basin': { name: 'Columbia Basin WA/OR', season: [7, 8, 9, 10, 11, 12, 1, 2, 3, 4] },
@@ -475,7 +470,7 @@
             'texas': { name: 'Texas', season: [3, 4, 5, 6] },
             'georgia': { name: 'Georgia/Vidalia', season: [4, 5, 6] }
         };
-        
+
         let state = {
             section: 'vegetables',
             commodity: 'iceberg',
@@ -483,49 +478,34 @@
             days: 60,
             data: {}
         };
-        
+
         let mainChart = null;
         let sparkCharts = {};
-        
+
         function getCurrentVegSeason() {
             const month = new Date().getMonth() + 1;
-            if ([11, 12, 1, 2, 3].includes(month)) {
-                return { region: 'imperial', label: 'Winter • Imperial/Yuma' };
-            }
+            if ([11, 12, 1, 2, 3].includes(month)) return { region: 'imperial', label: 'Winter • Imperial/Yuma' };
             return { region: 'salinas', label: 'Summer • Salinas' };
         }
-        
+
         function getCurrentOnionSeason() {
             const month = new Date().getMonth() + 1;
-            if ([3, 4, 5, 6].includes(month)) {
-                return { region: 'texas', label: 'Spring • Texas/Vidalia' };
-            }
+            if ([3, 4, 5, 6].includes(month)) return { region: 'texas', label: 'Spring • Texas/Vidalia' };
             return { region: 'idaho', label: 'Storage Season • Idaho/WA' };
         }
-        
+
         function getActiveRegion() {
             if (state.region !== 'auto') return state.region;
-            return state.section === 'vegetables' 
-                ? getCurrentVegSeason().region 
-                : getCurrentOnionSeason().region;
+            return state.section === 'vegetables' ? getCurrentVegSeason().region : getCurrentOnionSeason().region;
         }
-        
-        function getRegions() {
-            return state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS;
-        }
-        
-        function getCommodities() {
-            return state.section === 'vegetables' ? VEGETABLES : ONIONS;
-        }
-        
-        function getCommodityColor() {
-            const commodities = getCommodities();
-            return commodities[state.commodity]?.color || '#3fb950';
-        }
-        
-        // Sheet URL
-       const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
-        
+
+        function getRegions() { return state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS; }
+        function getCommodities() { return state.section === 'vegetables' ? VEGETABLES : ONIONS; }
+        function getCommodityColor() { return getCommodities()[state.commodity]?.color || '#3fb950'; }
+
+        // Your published sheet URL (History tab)
+        const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
+
         async function fetchData() {
             if (!SHEET_CSV_URL) return {};
             try {
@@ -533,48 +513,51 @@
                 const response = await fetch(jsonUrl);
                 const text = await response.text();
                 const jsonMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?$/);
-                if (jsonMatch) {
-                    const json = JSON.parse(jsonMatch[1]);
-                    return parseGoogleJSON(json);
-                }
-                return {};
+                if (!jsonMatch) return {};
+                const json = JSON.parse(jsonMatch[1]);
+                return parseGoogleJSON(json);
             } catch (e) {
                 console.error('Fetch failed:', e);
                 return {};
             }
         }
-        
+
         function parseGoogleJSON(json) {
             const data = { vegetables: {}, onions: {} };
-            
-            // Initialize vegetable structure
+
             Object.keys(VEGETABLES).forEach(c => {
                 data.vegetables[c] = {};
                 Object.keys(VEG_REGIONS).forEach(r => data.vegetables[c][r] = []);
             });
-            
-            // Initialize onion structure
+
             Object.keys(ONIONS).forEach(c => {
                 data.onions[c] = {};
                 Object.keys(ONION_REGIONS).forEach(r => data.onions[c][r] = []);
             });
-            
+
             if (!json.table || !json.table.rows) return data;
-            
+
             json.table.rows.forEach(row => {
                 if (!row.c) return;
+
                 const values = row.c.map(cell => cell ? (cell.v !== null ? cell.v : (cell.f || '')) : '');
                 const [date, point, commodity, pkg, low, high, avg, market, demand] = values;
                 if (!date || !commodity) return;
-                
-                // Parse date
+
+                // ✅ Robust date parsing (handles Date object, "Date(...)" string, ISO, and numbers)
                 let dateStr = '';
-                if (typeof date === 'string') {
+
+                if (date instanceof Date) {
+                    const y = date.getFullYear();
+                    const m = String(date.getMonth() + 1).padStart(2, '0');
+                    const d = String(date.getDate()).padStart(2, '0');
+                    dateStr = `${y}-${m}-${d}`;
+                } else if (typeof date === 'string') {
                     const gDateMatch = date.match(/Date\((\d+),(\d+),(\d+)\)/);
                     if (gDateMatch) {
                         const year = gDateMatch[1];
-                        const month = String(parseInt(gDateMatch[2]) + 1).padStart(2, '0');
-                        const day = gDateMatch[3].padStart(2, '0');
+                        const month = String(parseInt(gDateMatch[2], 10) + 1).padStart(2, '0');
+                        const day = String(parseInt(gDateMatch[3], 10)).padStart(2, '0');
                         dateStr = `${year}-${month}-${day}`;
                     } else if (date.includes('/')) {
                         const parts = date.split('/');
@@ -586,18 +569,20 @@
                     const d = new Date((date - 25569) * 86400 * 1000);
                     dateStr = d.toISOString().split('T')[0];
                 }
-                
+
+                // If we still couldn't parse a date, skip the row
+                if (!dateStr || Number.isNaN(new Date(dateStr).getTime())) return;
+
                 const upperComm = String(commodity).toUpperCase();
                 const upperPkg = String(pkg).toUpperCase();
                 const upperPoint = String(point).toUpperCase();
-                
-                // Check if it's an onion
+
                 if (upperComm.includes('ONIONS, DRY')) {
                     let onionKey = null;
                     if (upperComm.includes('YELLOW')) onionKey = 'onion-yellow';
                     else if (upperComm.includes('WHITE')) onionKey = 'onion-white';
                     else if (upperComm.includes('RED')) onionKey = 'onion-red';
-                    
+
                     let regionKey = null;
                     if (upperPoint.includes('IDAHO') || upperPoint.includes('MALHEUR')) regionKey = 'idaho';
                     else if (upperPoint.includes('COLUMBIA') || upperPoint.includes('WASHINGTON') || upperPoint.includes('UMATILLA')) regionKey = 'columbia-basin';
@@ -605,7 +590,7 @@
                     else if (upperPoint.includes('NEW YORK')) regionKey = 'new-york';
                     else if (upperPoint.includes('TEXAS')) regionKey = 'texas';
                     else if (upperPoint.includes('GEORGIA') || upperPoint.includes('VIDALIA')) regionKey = 'georgia';
-                    
+
                     if (onionKey && regionKey && data.onions[onionKey]?.[regionKey]) {
                         data.onions[onionKey][regionKey].push({
                             date: dateStr,
@@ -617,7 +602,6 @@
                         });
                     }
                 } else {
-                    // Vegetable
                     let vegKey = null;
                     if (upperComm.includes('ROMAINE') && upperPkg.includes('HEART')) vegKey = 'hearts';
                     else if (upperComm.includes('ICEBERG')) vegKey = 'iceberg';
@@ -625,13 +609,13 @@
                     else if (upperComm.includes('BROCCOLI')) vegKey = 'broccoli';
                     else if (upperComm.includes('CAULIFLOWER')) vegKey = 'cauliflower';
                     else if (upperComm.includes('CELERY')) vegKey = 'celery';
-                    
+
                     let regionKey = null;
                     if (upperPoint.includes('SALINAS') || upperPoint.includes('WATSONVILLE')) regionKey = 'salinas';
                     else if (upperPoint.includes('IMPERIAL') || upperPoint.includes('COACHELLA')) regionKey = 'imperial';
                     else if (upperPoint.includes('YUMA')) regionKey = 'yuma';
                     else if (upperPoint.includes('SANTA MARIA') || upperPoint.includes('OXNARD')) regionKey = 'santa-maria';
-                    
+
                     if (vegKey && regionKey && data.vegetables[vegKey]?.[regionKey]) {
                         data.vegetables[vegKey][regionKey].push({
                             date: dateStr,
@@ -644,8 +628,7 @@
                     }
                 }
             });
-            
-            // Dedupe and sort
+
             ['vegetables', 'onions'].forEach(section => {
                 Object.keys(data[section]).forEach(c => {
                     Object.keys(data[section][c]).forEach(r => {
@@ -668,34 +651,38 @@
                     });
                 });
             });
-            
+
             return data;
         }
-        
+
         function populateRegionDropdown() {
             const select = document.getElementById('regionSelect');
             const regions = getRegions();
             const season = state.section === 'vegetables' ? getCurrentVegSeason() : getCurrentOnionSeason();
-            
+
             select.innerHTML = `<option value="auto">Auto (${season.label})</option>`;
             Object.entries(regions).forEach(([key, val]) => {
                 select.innerHTML += `<option value="${key}">${val.name}</option>`;
             });
             select.value = state.region;
         }
-        
+
         function renderMainChart() {
             const ctx = document.getElementById('mainChart').getContext('2d');
             const region = getActiveRegion();
             const sectionData = state.section === 'vegetables' ? state.data.vegetables : state.data.onions;
             const commodityData = sectionData?.[state.commodity]?.[region] || [];
-            
+
             const cutoff = new Date();
             cutoff.setDate(cutoff.getDate() - state.days);
-            const filtered = commodityData.filter(d => new Date(d.date) >= cutoff);
-            
+
+            // ✅ Guard against any bad date strings
+            const filtered = commodityData
+                .filter(d => d.date && !Number.isNaN(new Date(d.date).getTime()))
+                .filter(d => new Date(d.date) >= cutoff);
+
             if (mainChart) mainChart.destroy();
-            
+
             if (filtered.length === 0) {
                 mainChart = new Chart(ctx, {
                     type: 'line',
@@ -709,12 +696,12 @@
                 });
                 return;
             }
-            
+
             const color = getCommodityColor();
             const gradient = ctx.createLinearGradient(0, 0, 0, 400);
             gradient.addColorStop(0, color + '40');
             gradient.addColorStop(1, color + '00');
-            
+
             mainChart = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -769,7 +756,13 @@
                             padding: 12,
                             displayColors: false,
                             callbacks: {
-                            title: (items) => {     const d = new Date(items[0].label + 'T00:00:00');     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); },
+                                // ✅ Use the real timestamp, NOT the formatted label
+                                title: (items) => {
+                                    const x = items?.[0]?.parsed?.x;
+                                    if (x == null || Number.isNaN(x)) return '';
+                                    const d = new Date(x);
+                                    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                                },
                                 label: (item) => {
                                     const labels = ['Avg', 'High', 'Low'];
                                     return `${labels[item.datasetIndex]}: $${item.raw.toFixed(2)}`;
@@ -793,13 +786,13 @@
                 }
             });
         }
-        
+
         function renderSparkline(id, dataArr, color) {
             const ctx = document.getElementById(id);
             if (!ctx) return;
             const recent = dataArr.slice(-30);
             if (sparkCharts[id]) sparkCharts[id].destroy();
-            
+
             if (recent.length === 0) {
                 sparkCharts[id] = new Chart(ctx, {
                     type: 'line',
@@ -808,7 +801,7 @@
                 });
                 return;
             }
-            
+
             sparkCharts[id] = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -830,7 +823,7 @@
                 }
             });
         }
-        
+
         function updateUI() {
             const region = getActiveRegion();
             const regions = getRegions();
@@ -839,18 +832,18 @@
             const dataArr = sectionData?.[state.commodity]?.[region] || [];
             const latest = dataArr[dataArr.length - 1];
             const prev = dataArr[dataArr.length - 2];
-            
+
             document.getElementById('commodityName').textContent = commodities[state.commodity]?.name || state.commodity;
             document.getElementById('shippingPoint').textContent = regions[region]?.name || region;
-            
+
             const priceEl = document.getElementById('currentPrice');
             const changeEl = document.getElementById('priceChange');
             const metaEl = document.getElementById('priceMeta');
-            
+
             if (latest) {
                 priceEl.textContent = `$${latest.avg.toFixed(2)}`;
                 priceEl.className = 'price-value';
-                
+
                 if (prev) {
                     const change = latest.avg - prev.avg;
                     const pct = (change / prev.avg) * 100;
@@ -861,15 +854,15 @@
                 } else {
                     changeEl.style.display = 'none';
                 }
-                
+
                 metaEl.textContent = `Mostly: $${latest.low.toFixed(2)} - $${latest.high.toFixed(2)}` +
                     (latest.demand ? ` • ${latest.demand} demand` : '') +
                     (latest.trend ? ` • ${latest.trend}` : '');
-                
+
                 const cutoff = new Date();
                 cutoff.setDate(cutoff.getDate() - state.days);
-                const period = dataArr.filter(d => new Date(d.date) >= cutoff);
-                
+                const period = dataArr.filter(d => d.date && !Number.isNaN(new Date(d.date).getTime()) && new Date(d.date) >= cutoff);
+
                 if (period.length > 0) {
                     document.getElementById('stat-high').textContent = `$${Math.max(...period.map(d => d.high)).toFixed(2)}`;
                     document.getElementById('stat-low').textContent = `$${Math.min(...period.map(d => d.low)).toFixed(2)}`;
@@ -888,27 +881,25 @@
                 document.getElementById('stat-demand').textContent = '--';
                 document.getElementById('stat-trend').textContent = '--';
             }
-            
-            // Update season label
+
             const vegSeason = getCurrentVegSeason();
             const onionSeason = getCurrentOnionSeason();
             document.getElementById('seasonLabel').textContent = state.section === 'vegetables' ? vegSeason.label : onionSeason.label;
             document.getElementById('lastSync').textContent = new Date().toLocaleString();
-            
+
             renderMainChart();
         }
-        
+
         function updateAllCards() {
-            // Update vegetable cards
             const vegRegion = state.section === 'vegetables' ? getActiveRegion() : getCurrentVegSeason().region;
             ['iceberg', 'romaine', 'hearts'].forEach(c => {
                 const dataArr = state.data.vegetables?.[c]?.[vegRegion] || [];
                 const latest = dataArr[dataArr.length - 1];
                 const prev = dataArr[dataArr.length - 2];
-                
+
                 const priceEl = document.getElementById(`price-${c}`);
                 const badgeEl = document.getElementById(`badge-${c}`);
-                
+
                 if (latest) {
                     if (priceEl) priceEl.textContent = `$${latest.avg.toFixed(2)}`;
                     if (badgeEl && prev) {
@@ -923,20 +914,19 @@
                     if (priceEl) priceEl.textContent = '--';
                     if (badgeEl) badgeEl.style.display = 'none';
                 }
-                
+
                 renderSparkline(`spark-${c}`, dataArr, VEGETABLES[c].color);
             });
-            
-            // Update onion cards
+
             const onionRegion = state.section === 'onions' ? getActiveRegion() : getCurrentOnionSeason().region;
             ['onion-yellow', 'onion-white', 'onion-red'].forEach(c => {
                 const dataArr = state.data.onions?.[c]?.[onionRegion] || [];
                 const latest = dataArr[dataArr.length - 1];
                 const prev = dataArr[dataArr.length - 2];
-                
+
                 const priceEl = document.getElementById(`price-${c}`);
                 const badgeEl = document.getElementById(`badge-${c}`);
-                
+
                 if (latest) {
                     if (priceEl) priceEl.textContent = `$${latest.avg.toFixed(2)}`;
                     if (badgeEl && prev) {
@@ -951,121 +941,96 @@
                     if (priceEl) priceEl.textContent = '--';
                     if (badgeEl) badgeEl.style.display = 'none';
                 }
-                
+
                 renderSparkline(`spark-${c}`, dataArr, ONIONS[c].color);
             });
         }
-        
+
         function switchSection(section) {
             state.section = section;
             state.region = 'auto';
-            
-            // Update default commodity for section
-            if (section === 'vegetables') {
-                state.commodity = 'iceberg';
-            } else {
-                state.commodity = 'onion-yellow';
-            }
-            
-            // Toggle tabs visibility
+            state.commodity = section === 'vegetables' ? 'iceberg' : 'onion-yellow';
+
             document.getElementById('vegTabs').style.display = section === 'vegetables' ? 'flex' : 'none';
             document.getElementById('onionTabs').style.display = section === 'onions' ? 'flex' : 'none';
-            
-            // Update section buttons
-            document.querySelectorAll('.section-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.section === section);
-            });
-            
-            // Update active tabs
+
+            document.querySelectorAll('.section-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.section === section));
+
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelector(`.tab[data-commodity="${state.commodity}"]`)?.classList.add('active');
-            
-            // Update active cards
+
             document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
             document.querySelector(`.price-card[data-commodity="${state.commodity}"]`)?.classList.add('active');
-            
+
             populateRegionDropdown();
             updateUI();
             updateAllCards();
         }
-        
+
         function setupEvents() {
-            // Section toggle
-            document.querySelectorAll('.section-btn').forEach(btn => {
-                btn.addEventListener('click', () => switchSection(btn.dataset.section));
-            });
-            
-            // Vegetable tabs
+            document.querySelectorAll('.section-btn').forEach(btn => btn.addEventListener('click', () => switchSection(btn.dataset.section)));
+
             document.querySelectorAll('#vegTabs .tab').forEach(tab => {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('#vegTabs .tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     state.commodity = tab.dataset.commodity;
-                    
+
                     document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
                     document.querySelector(`.price-card[data-commodity="${state.commodity}"]`)?.classList.add('active');
-                    
+
                     updateUI();
                 });
             });
-            
-            // Onion tabs
+
             document.querySelectorAll('#onionTabs .tab').forEach(tab => {
                 tab.addEventListener('click', () => {
                     document.querySelectorAll('#onionTabs .tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     state.commodity = tab.dataset.commodity;
-                    
+
                     document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
                     document.querySelector(`.price-card[data-commodity="${state.commodity}"]`)?.classList.add('active');
-                    
+
                     updateUI();
                 });
             });
-            
-            // Sidebar cards
+
             document.querySelectorAll('.price-card').forEach(card => {
                 card.addEventListener('click', () => {
                     const section = card.dataset.section;
                     const commodity = card.dataset.commodity;
-                    
-                    if (state.section !== section) {
-                        switchSection(section);
-                    }
-                    
+
+                    if (state.section !== section) switchSection(section);
                     state.commodity = commodity;
-                    
-                    // Update tabs
+
                     const tabContainer = section === 'vegetables' ? '#vegTabs' : '#onionTabs';
                     document.querySelectorAll(`${tabContainer} .tab`).forEach(t => t.classList.remove('active'));
                     document.querySelector(`${tabContainer} .tab[data-commodity="${commodity}"]`)?.classList.add('active');
-                    
-                    // Update cards
+
                     document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
                     card.classList.add('active');
-                    
+
                     updateUI();
                 });
             });
-            
-            // Time range buttons
+
             document.querySelectorAll('.time-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    state.days = parseInt(btn.dataset.days);
+                    state.days = parseInt(btn.dataset.days, 10);
                     updateUI();
                 });
             });
-            
-            // Region dropdown
+
             document.getElementById('regionSelect').addEventListener('change', e => {
                 state.region = e.target.value;
                 updateUI();
                 updateAllCards();
             });
         }
-        
+
         async function init() {
             state.data = await fetchData();
             console.log('Loaded data:', state.data);
@@ -1074,7 +1039,7 @@
             updateUI();
             updateAllCards();
         }
-        
+
         init();
     </script>
 </body>
