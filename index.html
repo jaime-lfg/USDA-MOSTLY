@@ -634,9 +634,16 @@
         }
 
         function updateAllCards() {
-            const vegRegion = state.section === 'vegetables' ? getActiveRegion() : getCurrentVegSeason().region;
             ['iceberg','romaine','hearts','broccoli','cauliflower','celery'].forEach(c => {
-                const dataArr = state.data.vegetables?.[c]?.[vegRegion] || [];
+                // Find best region for this commodity
+                let vegRegion = state.section === 'vegetables' ? getActiveRegion() : getCurrentVegSeason().region;
+                let dataArr = state.data.vegetables?.[c]?.[vegRegion] || [];
+                if (dataArr.length === 0) {
+                    for (const rk of Object.keys(VEG_REGIONS)) {
+                        const arr = state.data.vegetables?.[c]?.[rk] || [];
+                        if (arr.length > 0) { dataArr = arr; break; }
+                    }
+                }
                 const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
                 const priceEl = document.getElementById('price-' + c), badgeEl = document.getElementById('badge-' + c);
                 if (latest) {
@@ -647,9 +654,16 @@
                 renderSparkline('spark-' + c, dataArr, VEGETABLES[c].color);
             });
 
-            const onionRegion = state.section === 'onions' ? getActiveRegion() : getCurrentOnionSeason().region;
             ['onion-yellow','onion-white','onion-red'].forEach(c => {
-                const dataArr = state.data.onions?.[c]?.[onionRegion] || [];
+                // Find best region for this commodity
+                let onionRegion = state.section === 'onions' ? getActiveRegion() : getCurrentOnionSeason().region;
+                let dataArr = state.data.onions?.[c]?.[onionRegion] || [];
+                if (dataArr.length === 0) {
+                    for (const rk of Object.keys(ONION_REGIONS)) {
+                        const arr = state.data.onions?.[c]?.[rk] || [];
+                        if (arr.length > 0) { dataArr = arr; break; }
+                    }
+                }
                 const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
                 const priceEl = document.getElementById('price-' + c), badgeEl = document.getElementById('badge-' + c);
                 if (latest) {
