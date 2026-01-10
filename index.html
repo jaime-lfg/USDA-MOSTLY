@@ -445,10 +445,29 @@
 
         function getCurrentOnionSeason() {
             const m = new Date().getMonth() + 1;
-            return [3,4,5,6].includes(m) ? { region: 'texas', label: 'Spring • Texas/Vidalia' } : { region: 'idaho', label: 'Storage • Idaho/WA' };
+            return [3,4,5,6].includes(m) ? { region: 'texas', label: 'Spring • Texas/Vidalia' } : { region: 'columbia-basin', label: 'Storage • Columbia Basin' };
         }
 
-        function getActiveRegion() { return state.region !== 'auto' ? state.region : (state.section === 'vegetables' ? getCurrentVegSeason().region : getCurrentOnionSeason().region); }
+        function getActiveRegion() {
+            if (state.region !== 'auto') return state.region;
+            
+            // Get the default season-based region
+            const defaultRegion = state.section === 'vegetables' ? getCurrentVegSeason().region : getCurrentOnionSeason().region;
+            
+            // Check if default region has data
+            const sectionData = state.section === 'vegetables' ? state.data.vegetables : state.data.onions;
+            const commodityData = sectionData?.[state.commodity]?.[defaultRegion] || [];
+            if (commodityData.length > 0) return defaultRegion;
+            
+            // Otherwise find first region with data
+            const regions = state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS;
+            for (const regionKey of Object.keys(regions)) {
+                const data = sectionData?.[state.commodity]?.[regionKey] || [];
+                if (data.length > 0) return regionKey;
+            }
+            
+            return defaultRegion;
+        }
         function getRegions() { return state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS; }
         function getCommodities() { return state.section === 'vegetables' ? VEGETABLES : ONIONS; }
         function getCommodityColor() { return getCommodities()[state.commodity]?.color || '#3fb950'; }
