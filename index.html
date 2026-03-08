@@ -23,6 +23,14 @@
             --blue-dim: rgba(88, 166, 255, 0.15);
             --orange: #d29922;
             --orange-dim: rgba(210, 153, 34, 0.15);
+            --gold: #e3b341;
+            --gold-dim: rgba(227, 179, 65, 0.13);
+            --teal: #39d3bb;
+            --teal-dim: rgba(57, 211, 187, 0.12);
+            --purple: #bc8cff;
+            --purple-dim: rgba(188, 140, 255, 0.12);
+            --amber: #f0883e;
+            --amber-dim: rgba(240, 136, 62, 0.13);
             --border: #30363d;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -107,6 +115,45 @@
         .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
         .tab.active.vegetable { background: var(--green-dim); border-color: var(--green); color: var(--green); }
         .tab.active.onion { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+        .tab.active.corn { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+        .tab.active.soy  { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+        /* ── GRAIN SECTION ── */
+        .grain-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+        @media (max-width: 1024px) { .grain-layout { grid-template-columns: 1fr; } }
+        .grain-legend { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+        .grain-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); }
+        .grain-legend-line { width: 20px; height: 2.5px; border-radius: 1px; flex-shrink: 0; }
+        .grain-chart-container { position: relative; height: 300px; }
+        .spread-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+        .spread-card { background: var(--bg-card); border-radius: 8px; padding: 12px 14px; border: 1px solid var(--border); }
+        .spread-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 4px; }
+        .spread-value { font-size: 1.2rem; font-weight: 700; }
+        .spread-value.neg { color: var(--red); }
+        .spread-value.pos { color: var(--purple); }
+        .spread-explain { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+        .grain-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: all 0.15s; }
+        .grain-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+        .grain-card.active.corn { border-color: var(--gold); background: linear-gradient(135deg, var(--gold-dim), transparent); }
+        .grain-card.active.soy  { border-color: var(--amber); background: linear-gradient(135deg, var(--amber-dim), transparent); }
+        .grain-card-price { font-size: 1.4rem; font-weight: 700; margin-bottom: 2px; }
+        .grain-card-sub { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 10px; }
+        .grain-card-rows { display: flex; flex-direction: column; gap: 5px; }
+        .grain-card-row { display: flex; justify-content: space-between; font-size: 0.78rem; }
+        .grain-card-row-label { color: var(--text-muted); }
+        .grain-card-row-value { font-weight: 600; }
+        .grain-card-row-value.teal   { color: var(--teal); }
+        .grain-card-row-value.purple { color: var(--purple); }
+        .grain-card-row-value.red    { color: var(--red); }
+        .grain-divider { height: 1px; background: var(--border); margin: 7px 0; }
+        .grain-price-value { font-size: 2.8rem; font-weight: 700; letter-spacing: -2px; }
+        .grain-price-unit  { font-size: 0.8rem; color: var(--text-muted); align-self: flex-end; padding-bottom: 10px; margin-left: -4px; }
+        .grain-stats { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+        .grain-stat-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+        .grain-stat-row:last-child { border-bottom: none; }
+        .grain-data-sources { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 0.71rem; color: var(--text-muted); line-height: 1.8; }
+        .grain-src { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 5px; }
+        .grain-src:last-child { margin-bottom: 0; }
+        .grain-src-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
         .main-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
         @media (max-width: 1024px) { .main-layout { grid-template-columns: 1fr; } }
         .chart-section {
@@ -277,6 +324,7 @@
         <div class="section-toggle">
             <button class="section-btn active" data-section="vegetables">🥬 Vegetables</button>
             <button class="section-btn" data-section="onions">🧅 Onions</button>
+            <button class="section-btn" data-section="commodities">🌽 Commodities</button>
         </div>
 
         <div class="commodity-tabs" id="vegTabs">
@@ -292,6 +340,119 @@
             <button class="tab onion active" data-commodity="onion-yellow">Yellow</button>
             <button class="tab onion" data-commodity="onion-white">White</button>
             <button class="tab onion" data-commodity="onion-red">Red</button>
+        </div>
+
+        <div class="commodity-tabs" id="grainTabs" style="display: none;">
+            <button class="tab corn active" data-grain="corn">🌽 Corn</button>
+            <button class="tab soy" data-grain="soy">🫘 Soy</button>
+        </div>
+
+        <!-- ══ GRAIN SECTION ══════════════════════════════════════════════════ -->
+        <div id="grainSection" style="display:none;">
+            <div class="grain-layout">
+                <div class="chart-section">
+                    <div class="chart-header">
+                        <div class="price-display">
+                            <h2>
+                                <span id="grainName">Corn</span>
+                                <span class="shipping-point" id="grainSource">CME Futures</span>
+                            </h2>
+                            <div class="pack-size">dollars per bushel ($/bu)</div>
+                            <div class="price-row">
+                                <span class="grain-price-value" id="grainPrice">--</span>
+                                <span class="grain-price-unit">/bu</span>
+                                <span class="price-change" id="grainChange" style="display:none;"></span>
+                            </div>
+                            <div class="price-meta" id="grainMeta">Loading...</div>
+                        </div>
+                        <div class="time-controls">
+                            <div class="time-range" id="grainTimeRange">
+                                <button class="time-btn" data-days="30">30D</button>
+                                <button class="time-btn active" data-days="60">60D</button>
+                                <button class="time-btn" data-days="90">90D</button>
+                                <button class="time-btn" data-days="180">6M</button>
+                                <button class="time-btn" data-days="365">1Y</button>
+                                <button class="time-btn" data-days="9999">All</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grain-legend">
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--gold)"></div> Futures (CME)</div>
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--teal)"></div> Conv. Cash</div>
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--purple)"></div> Organic Cash</div>
+                        <div class="grain-legend-item" style="color:var(--text-muted)"><div class="grain-legend-line" style="width:20px;border-top:2px dashed rgba(248,81,73,0.7);height:0;margin-top:1px;"></div> Basis</div>
+                        <div class="grain-legend-item" style="color:var(--text-muted)"><div class="grain-legend-line" style="width:20px;border-top:2px dashed rgba(188,140,255,0.6);height:0;margin-top:1px;"></div> Org. Premium</div>
+                    </div>
+                    <div class="grain-chart-container">
+                        <canvas id="grainChart"></canvas>
+                    </div>
+                    <div class="spread-grid">
+                        <div class="spread-card">
+                            <div class="spread-label">📉 Basis (Conv. Cash − Futures)</div>
+                            <div class="spread-value neg" id="basisValue">--</div>
+                            <div class="spread-explain" id="basisExplain">Cash vs futures spread.</div>
+                        </div>
+                        <div class="spread-card">
+                            <div class="spread-label">🌿 Organic Premium (Org − Conv)</div>
+                            <div class="spread-value pos" id="orgPremValue">--</div>
+                            <div class="spread-explain" id="orgPremExplain">Organic price above conventional.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="sidebar">
+                    <div class="sidebar-section-title">Grains</div>
+                    <div class="grain-card corn active" data-grain="corn">
+                        <div class="card-header">
+                            <span class="card-title">🌽 Corn</span>
+                            <span class="card-badge" id="grain-badge-corn"></span>
+                        </div>
+                        <div class="grain-card-price" id="grain-price-corn" style="color:var(--gold)">--</div>
+                        <div class="grain-card-sub">ZC=F · front-month</div>
+                        <div class="grain-card-rows">
+                            <div class="grain-card-row"><span class="grain-card-row-label">Conv. Cash</span><span class="grain-card-row-value teal" id="grain-cash-corn">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Basis</span><span class="grain-card-row-value red" id="grain-basis-corn">--</span></div>
+                            <div class="grain-divider"></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Organic Cash</span><span class="grain-card-row-value purple" id="grain-org-corn">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Org. Premium</span><span class="grain-card-row-value purple" id="grain-orgprem-corn">--</span></div>
+                        </div>
+                        <canvas class="card-sparkline" id="grain-spark-corn"></canvas>
+                    </div>
+
+                    <div class="grain-card soy" data-grain="soy">
+                        <div class="card-header">
+                            <span class="card-title">🫘 Soy</span>
+                            <span class="card-badge" id="grain-badge-soy"></span>
+                        </div>
+                        <div class="grain-card-price" id="grain-price-soy" style="color:var(--amber)">--</div>
+                        <div class="grain-card-sub">ZS=F · front-month</div>
+                        <div class="grain-card-rows">
+                            <div class="grain-card-row"><span class="grain-card-row-label">Conv. Cash</span><span class="grain-card-row-value teal" id="grain-cash-soy">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Basis</span><span class="grain-card-row-value red" id="grain-basis-soy">--</span></div>
+                            <div class="grain-divider"></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Organic Cash</span><span class="grain-card-row-value purple" id="grain-org-soy">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Org. Premium</span><span class="grain-card-row-value purple" id="grain-orgprem-soy">--</span></div>
+                        </div>
+                        <canvas class="card-sparkline" id="grain-spark-soy"></canvas>
+                    </div>
+
+                    <div class="grain-stats">
+                        <div class="stats-title" id="grainStatsTitle">Corn · Stats</div>
+                        <div class="grain-stat-row"><span class="stat-label">Futures High</span><span class="stat-value" id="gstat-high">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Futures Low</span><span class="stat-value" id="gstat-low">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Conv. Cash Avg</span><span class="stat-value" style="color:var(--teal)" id="gstat-cash">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Avg Basis</span><span class="stat-value" style="color:var(--red)" id="gstat-basis">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Org. Cash Avg</span><span class="stat-value" style="color:var(--purple)" id="gstat-org">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Avg Org. Premium</span><span class="stat-value" style="color:var(--purple)" id="gstat-orgprem">--</span></div>
+                    </div>
+
+                    <div class="grain-data-sources">
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--gold)"></div><div><strong style="color:var(--text-secondary)">Futures</strong> — Yahoo Finance (ZC=F, ZS=F) · daily feed</div></div>
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--teal)"></div><div><strong style="color:var(--text-secondary)">Conv. Cash</strong> — USDA AMS Grain Report · logged via Apps Script</div></div>
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--purple)"></div><div><strong style="color:var(--text-secondary)">Organic Cash</strong> — USDA AMS Organic Grain Report · weekly</div></div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="main-layout">
@@ -735,10 +896,22 @@
         }
 
         function switchSection(section) {
-            state.section = section; state.region = 'auto'; state.commodity = section === 'vegetables' ? 'iceberg' : 'onion-yellow';
-            document.getElementById('vegTabs').style.display = section === 'vegetables' ? 'flex' : 'none';
-            document.getElementById('onionTabs').style.display = section === 'onions' ? 'flex' : 'none';
+            state.section = section;
+            const isCommodities = section === 'commodities';
+            // Show/hide tab rows
+            document.getElementById('vegTabs').style.display   = section === 'vegetables'  ? 'flex' : 'none';
+            document.getElementById('onionTabs').style.display = section === 'onions'       ? 'flex' : 'none';
+            document.getElementById('grainTabs').style.display = isCommodities             ? 'flex' : 'none';
+            // Show/hide main vs grain section
+            document.querySelector('.main-layout').style.display   = isCommodities ? 'none'  : 'grid';
+            document.getElementById('grainSection').style.display  = isCommodities ? 'block' : 'none';
+            // Section button active state
             document.querySelectorAll('.section-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.section === section));
+            if (isCommodities) {
+                updateGrainUI(); updateGrainCards(); return;
+            }
+            state.region = 'auto';
+            state.commodity = section === 'vegetables' ? 'iceberg' : 'onion-yellow';
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelector('.tab[data-commodity="' + state.commodity + '"]')?.classList.add('active');
             document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
@@ -771,12 +944,206 @@
             document.getElementById('regionSelect').addEventListener('change', e => { state.region = e.target.value; updateUI(); updateAllCards(); });
         }
 
+        // ══ GRAIN DATA & LOGIC ═══════════════════════════════════════════════════
+
+        const GRAINS = {
+            corn: { name: 'Corn', ticker: 'ZC=F', color: '#e3b341', orgColor: '#bc8cff', cashColor: '#39d3bb' },
+            soy:  { name: 'Soybeans', ticker: 'ZS=F', color: '#f0883e', orgColor: '#bc8cff', cashColor: '#39d3bb' }
+        };
+
+        // Sample data generator — replace with real fetch once backend is wired
+        // Futures: Yahoo Finance proxy | Cash: USDA AMS Grain sheet tab | Organic: USDA Organic Grain sheet tab
+        function generateGrainData() {
+            const grainData = {};
+            function genDates(n) {
+                const dates = [], base = new Date();
+                base.setDate(base.getDate() - n);
+                for (let i = 0; i <= n; i++) {
+                    const d = new Date(base); d.setDate(base.getDate() + i);
+                    if (d.getDay() !== 0 && d.getDay() !== 6) dates.push(d.toISOString().split('T')[0]);
+                }
+                return dates;
+            }
+            function walk(start, vol, n, drift=0) {
+                const p = [start];
+                for (let i = 1; i < n; i++) p.push(+(Math.max(p[i-1] + (Math.random()-0.48)*vol + drift, start*0.6)).toFixed(2));
+                return p;
+            }
+            const dates = genDates(365);
+            // Corn
+            const cornFutures = walk(4.78, 0.07, dates.length);
+            const cornCash    = cornFutures.map(f => +(f - 0.35 - Math.random()*0.08).toFixed(4));
+            const cornOrg     = cornCash.map((c,i) => +(c + 3.00 + Math.sin(i/10)*0.20 + (Math.random()-0.5)*0.25).toFixed(4));
+            grainData.corn = dates.map((d, i) => ({ date: d, futures: cornFutures[i], cash: cornCash[i], organic: cornOrg[i], basis: +(cornCash[i]-cornFutures[i]).toFixed(2), orgPrem: +(cornOrg[i]-cornCash[i]).toFixed(2) }));
+            // Soy
+            const soyFutures = walk(10.48, 0.14, dates.length);
+            const soyCash    = soyFutures.map(f => +(f - 0.36 - Math.random()*0.10).toFixed(4));
+            const soyOrg     = soyCash.map((c,i) => +(c + 7.80 + Math.sin(i/8)*0.30 + (Math.random()-0.5)*0.40).toFixed(4));
+            grainData.soy = dates.map((d, i) => ({ date: d, futures: soyFutures[i], cash: soyCash[i], organic: soyOrg[i], basis: +(soyCash[i]-soyFutures[i]).toFixed(2), orgPrem: +(soyOrg[i]-soyCash[i]).toFixed(2) }));
+            return grainData;
+        }
+
+        let grainData = {};
+        let grainChart = null;
+        let grainState = { grain: 'corn', days: 60 };
+
+        function getGrainPeriod() {
+            const arr = grainData[grainState.grain] || [];
+            if (grainState.days >= 9999) return arr;
+            const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - grainState.days);
+            return arr.filter(d => new Date(d.date) >= cutoff);
+        }
+
+        function renderGrainChart() {
+            const ctx = document.getElementById('grainChart').getContext('2d');
+            const period = getGrainPeriod();
+            const g = GRAINS[grainState.grain];
+            if (grainChart) grainChart.destroy();
+            if (!period.length) return;
+            const grad = ctx.createLinearGradient(0,0,0,300);
+            grad.addColorStop(0, g.color + '33'); grad.addColorStop(1, g.color + '00');
+            grainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: period.map(d => d.date),
+                    datasets: [
+                        { label: 'Futures',      data: period.map(d => d.futures), borderColor: g.color,       backgroundColor: grad, borderWidth: 2.5, fill: true,  tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Conv. Cash',   data: period.map(d => d.cash),    borderColor: g.cashColor,   borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Organic Cash', data: period.map(d => d.organic), borderColor: g.orgColor,    borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Basis',        data: period.map(d => d.basis),   borderColor: 'rgba(248,81,73,0.7)',   borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y2' },
+                        { label: 'Org. Premium', data: period.map(d => d.orgPrem), borderColor: 'rgba(188,140,255,0.6)', borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y2' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor:'#21262d', titleColor:'#f0f6fc', bodyColor:'#8b949e', borderColor:'#30363d', borderWidth:1, padding:12,
+                            callbacks: {
+                                title: items => new Date(items[0].parsed.x).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}),
+                                label: item => { const labels=['Futures','Conv. Cash','Org. Cash','Basis','Org. Prem']; const v=item.raw; const isSpread=item.datasetIndex>=3; return '  '+labels[item.datasetIndex]+': '+(isSpread?(v>=0?'+$':'-$')+Math.abs(v).toFixed(2):'$'+v.toFixed(2)); }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { type:'time', time:{ unit: grainState.days<=60?'week':'month', displayFormats:{week:'MMM d',month:'MMM yy'} }, grid:{color:'rgba(48,54,61,0.5)'}, ticks:{color:'#6e7681',maxTicksLimit:8} },
+                        y:  { position:'right', grid:{color:'rgba(48,54,61,0.4)'}, ticks:{color:'#6e7681', callback:v=>'$'+(v/100).toFixed(2)}, title:{display:true,text:'Price ($/bu)',color:'#6e7681',font:{size:10}} },
+                        y2: { position:'left',  grid:{display:false}, ticks:{color:'#6e7681', callback:v=>(v>=0?'+$':'-$')+Math.abs(v).toFixed(2)}, title:{display:true,text:'Spread ($/bu)',color:'#6e7681',font:{size:10}} }
+                    }
+                }
+            });
+        }
+
+        function renderGrainSparkline(id, data, color) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if (sparkCharts[id]) sparkCharts[id].destroy();
+            const recent = data.slice(-30);
+            if (!recent.length) return;
+            sparkCharts[id] = new Chart(ctx, { type:'line', data:{ labels:recent.map(d=>d.date), datasets:[{data:recent.map(d=>d.futures), borderColor:color, borderWidth:1.5, fill:false, tension:0.4, pointRadius:0}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}} } });
+        }
+
+        function updateGrainUI() {
+            const period = getGrainPeriod();
+            const latest = period[period.length-1], first = period[0];
+            const g = GRAINS[grainState.grain];
+            document.getElementById('grainName').textContent = g.name;
+            document.getElementById('grainSource').textContent = g.ticker + ' · CME';
+            document.getElementById('grainStatsTitle').textContent = g.name + ' · ' + (grainState.days >= 9999 ? 'All Time' : grainState.days + 'D') + ' Stats';
+
+            if (latest) {
+                document.getElementById('grainPrice').textContent = (latest.futures/100).toFixed(2);
+                document.getElementById('grainMeta').textContent = 'Conv. Cash: $' + (latest.cash/100).toFixed(2) + '/bu  •  Organic: $' + (latest.organic/100).toFixed(2) + '/bu  •  Basis: ' + (latest.basis >= 0 ? '+' : '') + latest.basis.toFixed(1) + '¢';
+
+                // Period change badge
+                if (first && first !== latest) {
+                    const change = latest.futures - first.futures, pct = (change/first.futures)*100;
+                    const arrow = change > 0 ? '↑' : '↓';
+                    const label = grainState.days >= 9999 ? 'all time' : grainState.days + 'd';
+                    const changeEl = document.getElementById('grainChange');
+                    changeEl.style.display = 'inline-flex';
+                    changeEl.className = 'price-change ' + (change > 0 ? 'up' : 'down');
+                    changeEl.innerHTML = '<span class="change-dollar">' + arrow + ' $' + (Math.abs(change)/100).toFixed(2) + '</span><span class="change-pct">' + Math.abs(pct).toFixed(1) + '% ' + label + '</span>';
+                } else { document.getElementById('grainChange').style.display = 'none'; }
+
+                // Spread cards
+                document.getElementById('basisValue').textContent = (latest.basis >= 0 ? '+$' : '-$') + Math.abs(latest.basis).toFixed(2);
+                document.getElementById('basisExplain').textContent = latest.basis < 0 ? 'Cash trading ' + Math.abs(latest.basis).toFixed(0) + '¢ below futures. Weak basis — farmers may hold and wait.' : 'Cash trading above futures. Strong basis — good time to sell.';
+                document.getElementById('orgPremValue').textContent = '+$' + latest.orgPrem.toFixed(2);
+                document.getElementById('orgPremExplain').textContent = 'Organic fetching ' + ((latest.orgPrem/latest.cash)*100).toFixed(0) + '% above conventional cash.';
+
+                // Stats
+                document.getElementById('gstat-high').textContent = '$' + (Math.max(...period.map(d=>d.futures))/100).toFixed(2);
+                document.getElementById('gstat-low').textContent  = '$' + (Math.min(...period.map(d=>d.futures))/100).toFixed(2);
+                document.getElementById('gstat-cash').textContent   = '$' + (period.reduce((s,d)=>s+d.cash,0)/period.length/100).toFixed(2);
+                document.getElementById('gstat-basis').textContent  = (period.reduce((s,d)=>s+d.basis,0)/period.length < 0 ? '-$' : '+$') + Math.abs(period.reduce((s,d)=>s+d.basis,0)/period.length).toFixed(2);
+                document.getElementById('gstat-org').textContent    = '$' + (period.reduce((s,d)=>s+d.organic,0)/period.length/100).toFixed(2);
+                document.getElementById('gstat-orgprem').textContent= '+$' + (period.reduce((s,d)=>s+d.orgPrem,0)/period.length).toFixed(2);
+            }
+            renderGrainChart();
+        }
+
+        function updateGrainCards() {
+            ['corn','soy'].forEach(g => {
+                const arr = grainData[g] || [];
+                const latest = arr[arr.length-1], prev = arr[arr.length-2];
+                const col = GRAINS[g].color;
+                if (latest) {
+                    document.getElementById('grain-price-'+g).textContent = '$' + (latest.futures/100).toFixed(2);
+                    document.getElementById('grain-cash-'+g).textContent  = '$' + (latest.cash/100).toFixed(2);
+                    document.getElementById('grain-basis-'+g).textContent = (latest.basis>=0?'+$':'-$') + Math.abs(latest.basis).toFixed(2);
+                    document.getElementById('grain-org-'+g).textContent   = '$' + (latest.organic/100).toFixed(2);
+                    document.getElementById('grain-orgprem-'+g).textContent = '+$' + latest.orgPrem.toFixed(2);
+                    if (prev) {
+                        const ch = ((latest.futures-prev.futures)/prev.futures)*100;
+                        const badgeEl = document.getElementById('grain-badge-'+g);
+                        badgeEl.style.display = 'inline-block';
+                        badgeEl.className = 'card-badge ' + (ch > 0.1 ? 'up' : ch < -0.1 ? 'down' : 'flat');
+                        badgeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%';
+                    }
+                }
+                renderGrainSparkline('grain-spark-'+g, arr, col);
+            });
+        }
+
+        function setupGrainEvents() {
+            document.querySelectorAll('#grainTabs .tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('#grainTabs .tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    grainState.grain = tab.dataset.grain;
+                    document.querySelectorAll('.grain-card').forEach(c => c.classList.remove('active'));
+                    document.querySelector('.grain-card[data-grain="'+grainState.grain+'"]')?.classList.add('active');
+                    updateGrainUI();
+                });
+            });
+            document.querySelectorAll('.grain-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    grainState.grain = card.dataset.grain;
+                    document.querySelectorAll('#grainTabs .tab').forEach(t => t.classList.remove('active'));
+                    document.querySelector('#grainTabs .tab[data-grain="'+grainState.grain+'"]')?.classList.add('active');
+                    document.querySelectorAll('.grain-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+                    updateGrainUI();
+                });
+            });
+            document.querySelectorAll('#grainTimeRange .time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('#grainTimeRange .time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    grainState.days = parseInt(btn.dataset.days, 10);
+                    updateGrainUI();
+                });
+            });
+        }
+
         async function init() {
             state.data = await fetchData();
             console.log('Loaded regions (veg):', Object.keys(VEG_REGIONS));
             console.log('Loaded regions (onion):', Object.keys(ONION_REGIONS));
-            console.log('Loaded data:', state.data);
-            populateRegionDropdown(); setupEvents(); updateUI(); updateAllCards();
+            grainData = generateGrainData(); // TODO: replace with real fetch when backend is ready
+            populateRegionDropdown(); setupEvents(); setupGrainEvents();
+            updateUI(); updateAllCards(); updateGrainCards();
         }
         init();
     </script>
