@@ -413,6 +413,7 @@
                             <div class="spread-label">📉 Basis (Conv. Cash − Futures)</div>
                             <div class="spread-value neg" id="basisValue">--</div>
                             <div class="spread-explain" id="basisExplain">Cash vs futures spread.</div>
+                            <div class="spread-explain" style="margin-top:4px; color:var(--text-muted); font-style:italic;">Illinois elevator · USDA MARS 3192</div>
                         </div>
                         <div class="spread-card">
                             <div class="spread-label">🌿 Organic Premium (Org − Conv)</div>
@@ -470,7 +471,7 @@
 
                     <div class="grain-data-sources">
                         <div class="grain-src"><div class="grain-src-dot" style="background:var(--gold)"></div><div><strong style="color:var(--text-secondary)">Futures</strong> — Yahoo Finance (ZC=F, ZS=F) · daily feed</div></div>
-                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--teal)"></div><div><strong style="color:var(--text-secondary)">Conv. Cash</strong> — USDA AMS Grain Report · logged via Apps Script</div></div>
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--teal)"></div><div><strong style="color:var(--text-secondary)">Conv. Cash</strong> — USDA AMS Grain Report 3192 · Illinois elevators · logged via Apps Script</div></div>
                         <div class="grain-src"><div class="grain-src-dot" style="background:var(--purple)"></div><div><strong style="color:var(--text-secondary)">Organic Cash</strong> — USDA AMS Organic Grain Report · weekly</div></div>
                     </div>
                 </div>
@@ -1378,7 +1379,7 @@
 
                 // Spread cards
                 document.getElementById('basisValue').textContent = (latest.basis >= 0 ? '+$' : '-$') + Math.abs(latest.basis).toFixed(2);
-                document.getElementById('basisExplain').textContent = latest.basis < 0 ? 'Cash trading ' + (Math.abs(latest.basis)*100).toFixed(0) + '¢ below futures. Weak basis — farmers may hold and wait.' : 'Cash trading above futures. Strong basis — good time to sell.';
+                document.getElementById('basisExplain').textContent = latest.basis < 0 ? 'Illinois cash trading ' + (Math.abs(latest.basis)*100).toFixed(0) + '¢ below CME futures. Weak basis — farmers may hold and wait.' : 'Illinois cash trading above CME futures. Strong basis — good time to sell.';
                 document.getElementById('orgPremValue').textContent = '+$' + latest.orgPrem.toFixed(2);
                 document.getElementById('orgPremExplain').textContent = 'Organic fetching ' + ((latest.orgPrem/latest.cash)*100).toFixed(0) + '% above conventional cash.';
 
