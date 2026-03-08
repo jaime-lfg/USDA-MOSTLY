@@ -951,35 +951,71 @@
             soy:  { name: 'Soybeans', ticker: 'ZS=F', color: '#f0883e', orgColor: '#bc8cff', cashColor: '#39d3bb' }
         };
 
-        // Sample data generator — replace with real fetch once backend is wired
         // Futures: Yahoo Finance proxy | Cash: USDA AMS Grain sheet tab | Organic: USDA Organic Grain sheet tab
-        function generateGrainData() {
-            const grainData = {};
-            function genDates(n) {
-                const dates = [], base = new Date();
-                base.setDate(base.getDate() - n);
-                for (let i = 0; i <= n; i++) {
-                    const d = new Date(base); d.setDate(base.getDate() + i);
-                    if (d.getDay() !== 0 && d.getDay() !== 6) dates.push(d.toISOString().split('T')[0]);
-                }
-                return dates;
+        // Grains sheet gid — update if tab order changes
+        const GRAINS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=0&single=true&output=csv';
+
+        async function fetchGrainData() {
+            // Find the Grains tab gid dynamically by fetching the sheet index
+            // Sheet is published — fetch as CSV then parse
+            const grainData = { corn: {}, soy: {} };
+            const raw = { corn: {}, soy: {} };
+
+            try {
+                // Use gviz JSON endpoint — need to find the correct gid for Grains tab
+                // We'll fetch the CSV directly using the known spreadsheet ID
+                const url = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/gviz/tq?tqx=out:json&sheet=Grains';
+                const resp = await fetch(url);
+                const text = await resp.text();
+                // Strip Google's JSONP wrapper
+                const json = JSON.parse(text.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+                const rows = json.table.rows;
+
+                rows.forEach(row => {
+                    const cols = row.c;
+                    if (!cols || !cols[0]) return;
+                    // Col 0: Date, Col 1: Commodity, Col 2: Type, Col 3: Price
+                    const dateVal = cols[0].v; // e.g. "Date(2026,2,8)" or string
+                    const commodity = (cols[1]?.v || '').toLowerCase();
+                    const type      = (cols[2]?.v || '').toLowerCase();
+                    const price     = parseFloat(cols[3]?.v);
+
+                    if (!dateVal || !commodity || !type || isNaN(price)) return;
+
+                    // Parse gviz date format "Date(yyyy,m,d)" — month is 0-indexed
+                    let dateStr;
+                    const dm = String(dateVal).match(/Date\((\d+),(\d+),(\d+)\)/);
+                    if (dm) {
+                        dateStr = dm[1] + '-' + String(+dm[2]+1).padStart(2,'0') + '-' + String(dm[3]).padStart(2,'0');
+                    } else {
+                        dateStr = String(dateVal).substring(0, 10);
+                    }
+
+                    if (commodity !== 'corn' && commodity !== 'soy') return;
+                    if (!raw[commodity][dateStr]) raw[commodity][dateStr] = {};
+                    raw[commodity][dateStr][type] = price;
+                });
+
+                // Build sorted array for each commodity, merging futures/cash/organic by date
+                ['corn', 'soy'].forEach(g => {
+                    const allDates = Object.keys(raw[g]).sort();
+                    // Forward-fill cash and organic since they update less frequently
+                    let lastCash = null, lastOrg = null;
+                    grainData[g] = allDates.map(date => {
+                        const d = raw[g][date];
+                        if (d.cash    != null) lastCash = d.cash;
+                        if (d.organic != null) lastOrg  = d.organic;
+                        const futures = d.futures ?? null;
+                        const cash    = lastCash;
+                        const organic = lastOrg;
+                        const basis   = (futures != null && cash != null) ? +(cash - futures).toFixed(4) : null;
+                        const orgPrem = (organic != null && cash != null) ? +(organic - cash).toFixed(4) : null;
+                        return { date, futures, cash, organic, basis, orgPrem };
+                    }).filter(d => d.futures != null); // only include days we have futures
+                });
+            } catch(e) {
+                console.error('Grain data fetch error:', e);
             }
-            function walk(start, vol, n, drift=0) {
-                const p = [start];
-                for (let i = 1; i < n; i++) p.push(+(Math.max(p[i-1] + (Math.random()-0.48)*vol + drift, start*0.6)).toFixed(2));
-                return p;
-            }
-            const dates = genDates(365);
-            // Corn
-            const cornFutures = walk(4.78, 0.07, dates.length);
-            const cornCash    = cornFutures.map(f => +(f - 0.35 - Math.random()*0.08).toFixed(4));
-            const cornOrg     = cornCash.map((c,i) => +(c + 3.00 + Math.sin(i/10)*0.20 + (Math.random()-0.5)*0.25).toFixed(4));
-            grainData.corn = dates.map((d, i) => ({ date: d, futures: cornFutures[i], cash: cornCash[i], organic: cornOrg[i], basis: +(cornCash[i]-cornFutures[i]).toFixed(2), orgPrem: +(cornOrg[i]-cornCash[i]).toFixed(2) }));
-            // Soy
-            const soyFutures = walk(10.48, 0.14, dates.length);
-            const soyCash    = soyFutures.map(f => +(f - 0.36 - Math.random()*0.10).toFixed(4));
-            const soyOrg     = soyCash.map((c,i) => +(c + 7.80 + Math.sin(i/8)*0.30 + (Math.random()-0.5)*0.40).toFixed(4));
-            grainData.soy = dates.map((d, i) => ({ date: d, futures: soyFutures[i], cash: soyCash[i], organic: soyOrg[i], basis: +(soyCash[i]-soyFutures[i]).toFixed(2), orgPrem: +(soyOrg[i]-soyCash[i]).toFixed(2) }));
             return grainData;
         }
 
@@ -1141,7 +1177,7 @@
             state.data = await fetchData();
             console.log('Loaded regions (veg):', Object.keys(VEG_REGIONS));
             console.log('Loaded regions (onion):', Object.keys(ONION_REGIONS));
-            grainData = generateGrainData(); // TODO: replace with real fetch when backend is ready
+            grainData = await fetchGrainData();
             populateRegionDropdown(); setupEvents(); setupGrainEvents();
             updateUI(); updateAllCards(); updateGrainCards();
         }
