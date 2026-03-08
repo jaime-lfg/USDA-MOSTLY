@@ -416,56 +416,60 @@
             'onion-red': { name: 'Red Onions', color: '#f85149', pack: 'jumbo' }
         };
 
-        const VEG_REGIONS = {
-            'western-arizona': { name: 'Western Arizona', season: [11, 12, 1, 2, 3, 4] },
-            'imperial': { name: 'Imperial/Coachella', season: [11, 12, 1, 2, 3, 4] },
-            'salinas': { name: 'Salinas-Watsonville', season: [4, 5, 6, 7, 8, 9, 10, 11] },
-            'santa-maria': { name: 'Santa Maria', season: [1,2,3,4,5,6,7,8,9,10,11,12] },
-            'oxnard': { name: 'Oxnard', season: [1,2,3,4,5,6,7,8,9,10,11,12] }
-        };
-
-        const ONION_REGIONS = {
-            'idaho': { name: 'Idaho/Malheur Co. Oregon', season: [8,9,10,11,12,1,2,3,4] },
-            'columbia-basin': { name: 'Columbia Basin WA/OR', season: [7,8,9,10,11,12,1,2,3,4] },
-            'wisconsin': { name: 'Central Wisconsin', season: [8,9,10,11,12,1,2] },
-            'new-york': { name: 'New York', season: [8,9,10,11,12] },
-            'texas': { name: 'Texas', season: [3,4,5,6] },
-            'georgia': { name: 'Georgia/Vidalia', season: [4,5,6] }
-        };
+        // ── DYNAMIC REGIONS ─────────────────────────────────────────────────────────
+        // Both dicts start empty and are populated from whatever shipping points
+        // the backend actually logs. No more dropped rows due to unknown regions.
+        const VEG_REGIONS = {};
+        const ONION_REGIONS = {};
 
         const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
 
         let state = { section: 'vegetables', commodity: 'iceberg', region: 'auto', days: 60, data: {} };
         let mainChart = null, sparkCharts = {};
 
+        // ── SEASONAL DEFAULTS ────────────────────────────────────────────────────────
+        // Pattern-match against whatever keys exist in the dynamic dicts.
         function getCurrentVegSeason() {
             const m = new Date().getMonth() + 1;
-            return [11,12,1,2,3].includes(m) ? { region: 'western-arizona', label: 'Winter • Western Arizona' } : { region: 'salinas', label: 'Summer • Salinas' };
+            const isWinter = [11,12,1,2,3,4].includes(m);
+            const patterns = isWinter
+                ? ['arizona', 'imperial', 'coachella', 'yuma', 'w-az']
+                : ['salinas', 'watsonville', 'santa-maria', 'oxnard'];
+            for (const [k, v] of Object.entries(VEG_REGIONS)) {
+                if (patterns.some(p => k.includes(p))) {
+                    return { region: k, label: (isWinter ? 'Winter' : 'Summer') + ' \u2022 ' + v.name };
+                }
+            }
+            const fallback = Object.keys(VEG_REGIONS)[0] || 'unknown';
+            return { region: fallback, label: VEG_REGIONS[fallback]?.name || 'No data yet' };
         }
 
         function getCurrentOnionSeason() {
             const m = new Date().getMonth() + 1;
-            return [3,4,5,6].includes(m) ? { region: 'texas', label: 'Spring • Texas/Vidalia' } : { region: 'columbia-basin', label: 'Storage • Columbia Basin' };
+            const isSpring = [3,4,5,6].includes(m);
+            const patterns = isSpring
+                ? ['texas', 'georgia', 'vidalia']
+                : ['columbia', 'idaho', 'malheur', 'wisconsin', 'new-york'];
+            for (const [k, v] of Object.entries(ONION_REGIONS)) {
+                if (patterns.some(p => k.includes(p))) {
+                    return { region: k, label: (isSpring ? 'Spring' : 'Storage') + ' \u2022 ' + v.name };
+                }
+            }
+            const fallback = Object.keys(ONION_REGIONS)[0] || 'unknown';
+            return { region: fallback, label: ONION_REGIONS[fallback]?.name || 'No data yet' };
         }
 
         function getActiveRegion() {
             if (state.region !== 'auto') return state.region;
-            
-            // Get the default season-based region
             const defaultRegion = state.section === 'vegetables' ? getCurrentVegSeason().region : getCurrentOnionSeason().region;
-            
-            // Check if default region has data
             const sectionData = state.section === 'vegetables' ? state.data.vegetables : state.data.onions;
             const commodityData = sectionData?.[state.commodity]?.[defaultRegion] || [];
             if (commodityData.length > 0) return defaultRegion;
-            
-            // Otherwise find first region with data
             const regions = state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS;
             for (const regionKey of Object.keys(regions)) {
-                const data = sectionData?.[state.commodity]?.[regionKey] || [];
-                if (data.length > 0) return regionKey;
+                const d = sectionData?.[state.commodity]?.[regionKey] || [];
+                if (d.length > 0) return regionKey;
             }
-            
             return defaultRegion;
         }
         function getRegions() { return state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS; }
@@ -484,41 +488,75 @@
             } catch (e) { console.error('Fetch failed:', e); return {}; }
         }
 
+        function slugify(str) {
+            return String(str).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        }
+        function titleCase(str) {
+            return String(str).trim().replace(/\b\w/g, c => c.toUpperCase());
+        }
+
         function parseGoogleJSON(json) {
             const data = { vegetables: {}, onions: {} };
-            Object.keys(VEGETABLES).forEach(c => { data.vegetables[c] = {}; Object.keys(VEG_REGIONS).forEach(r => data.vegetables[c][r] = []); });
-            Object.keys(ONIONS).forEach(c => { data.onions[c] = {}; Object.keys(ONION_REGIONS).forEach(r => data.onions[c][r] = []); });
+            // Pre-seed commodity keys (regions will be added dynamically)
+            Object.keys(VEGETABLES).forEach(c => { data.vegetables[c] = {}; });
+            Object.keys(ONIONS).forEach(c => { data.onions[c] = {}; });
             if (!json.table?.rows) return data;
 
             json.table.rows.forEach(row => {
                 if (!row.c) return;
                 const vals = row.c.map(cell => cell ? (cell.v !== null ? cell.v : (cell.f || '')) : '');
                 const [date, point, commodity, pkg, low, high, avg, market, demand] = vals;
-                if (!date || !commodity) return;
+                if (!date || !commodity || !point) return;
 
+                // ── DATE PARSING ──────────────────────────────────────────────────────
                 let dateStr = '';
-                if (date instanceof Date) dateStr = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
-                else if (typeof date === 'string') {
+                if (date instanceof Date) {
+                    dateStr = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
+                } else if (typeof date === 'string') {
                     const gm = date.match(/Date\((\d+),(\d+),(\d+)\)/);
                     if (gm) dateStr = gm[1] + '-' + String(+gm[2]+1).padStart(2,'0') + '-' + String(+gm[3]).padStart(2,'0');
                     else if (date.includes('/')) { const p = date.split('/'); dateStr = p[2] + '-' + p[0].padStart(2,'0') + '-' + p[1].padStart(2,'0'); }
                     else dateStr = date;
-                } else if (typeof date === 'number') dateStr = new Date((date - 25569) * 86400000).toISOString().split('T')[0];
+                } else if (typeof date === 'number') {
+                    dateStr = new Date((date - 25569) * 86400000).toISOString().split('T')[0];
+                }
                 if (!dateStr || isNaN(new Date(dateStr).getTime())) return;
 
-                const uComm = String(commodity).toUpperCase(), uPkg = String(pkg).toUpperCase(), uPoint = String(point).toUpperCase();
+                // ── DYNAMIC REGION KEY ────────────────────────────────────────────────
+                // Use the raw shipping point string as the region key (slugified).
+                // This means ANY shipping point the backend logs will appear automatically.
+                const rk = slugify(point);
+                const rkName = titleCase(point);
+                if (!rk) return;
+
+                const uComm = String(commodity).toUpperCase();
+                const uPkg = String(pkg).toUpperCase();
 
                 if (uComm.includes('ONIONS, DRY')) {
-                    let ok = uComm.includes('YELLOW') ? 'onion-yellow' : uComm.includes('WHITE') ? 'onion-white' : uComm.includes('RED') ? 'onion-red' : null;
-                    let rk = uPoint.includes('IDAHO') || uPoint.includes('MALHEUR') ? 'idaho' : uPoint.includes('COLUMBIA') || uPoint.includes('WASHINGTON') ? 'columbia-basin' : uPoint.includes('WISCONSIN') ? 'wisconsin' : uPoint.includes('NEW YORK') ? 'new-york' : uPoint.includes('TEXAS') ? 'texas' : uPoint.includes('GEORGIA') || uPoint.includes('VIDALIA') ? 'georgia' : null;
-                    if (ok && rk && data.onions[ok]?.[rk]) data.onions[ok][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    const ok = uComm.includes('YELLOW') ? 'onion-yellow'
+                              : uComm.includes('WHITE') ? 'onion-white'
+                              : uComm.includes('RED') ? 'onion-red' : null;
+                    if (ok) {
+                        if (!ONION_REGIONS[rk]) ONION_REGIONS[rk] = { name: rkName };
+                        if (!data.onions[ok][rk]) data.onions[ok][rk] = [];
+                        data.onions[ok][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    }
                 } else {
-                    let vk = uComm.includes('ROMAINE') && uPkg.includes('HEART') ? 'hearts' : uComm.includes('ICEBERG') ? 'iceberg' : uComm.includes('ROMAINE') ? 'romaine' : uComm.includes('BROCCOLI') ? 'broccoli' : uComm.includes('CAULIFLOWER') ? 'cauliflower' : uComm.includes('CELERY') ? 'celery' : null;
-                    let rk = uPoint.includes('WESTERN ARIZONA') ? 'western-arizona' : uPoint.includes('IMPERIAL') || uPoint.includes('COACHELLA') ? 'imperial' : uPoint.includes('SALINAS') || uPoint.includes('WATSONVILLE') ? 'salinas' : uPoint.includes('SANTA MARIA') ? 'santa-maria' : uPoint.includes('OXNARD') ? 'oxnard' : null;
-                    if (vk && rk && data.vegetables[vk]?.[rk]) data.vegetables[vk][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    const vk = (uComm.includes('ROMAINE') && uPkg.includes('HEART')) ? 'hearts'
+                              : uComm.includes('ICEBERG') ? 'iceberg'
+                              : uComm.includes('ROMAINE') ? 'romaine'
+                              : uComm.includes('BROCCOLI') ? 'broccoli'
+                              : uComm.includes('CAULIFLOWER') ? 'cauliflower'
+                              : uComm.includes('CELERY') ? 'celery' : null;
+                    if (vk) {
+                        if (!VEG_REGIONS[rk]) VEG_REGIONS[rk] = { name: rkName };
+                        if (!data.vegetables[vk][rk]) data.vegetables[vk][rk] = [];
+                        data.vegetables[vk][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    }
                 }
             });
 
+            // ── DEDUPLICATE & SORT ────────────────────────────────────────────────────
             ['vegetables', 'onions'].forEach(sec => {
                 Object.keys(data[sec]).forEach(c => {
                     Object.keys(data[sec][c]).forEach(r => {
@@ -526,7 +564,14 @@
                         data[sec][c][r].forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
                         data[sec][c][r] = Object.keys(byDate).sort().map(d => {
                             const entries = byDate[d];
-                            return { date: d, low: Math.round(entries.reduce((s,e)=>s+e.low,0)/entries.length*100)/100, high: Math.round(entries.reduce((s,e)=>s+e.high,0)/entries.length*100)/100, avg: Math.round(entries.reduce((s,e)=>s+e.avg,0)/entries.length*100)/100, demand: entries[0].demand, trend: entries[0].trend };
+                            return {
+                                date: d,
+                                low:  Math.round(entries.reduce((s,e)=>s+e.low, 0)/entries.length*100)/100,
+                                high: Math.round(entries.reduce((s,e)=>s+e.high,0)/entries.length*100)/100,
+                                avg:  Math.round(entries.reduce((s,e)=>s+e.avg, 0)/entries.length*100)/100,
+                                demand: entries[0].demand,
+                                trend:  entries[0].trend
+                            };
                         });
                     });
                 });
@@ -574,9 +619,15 @@
                 options: {
                     responsive: true, maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' },
                     plugins: { legend: { display: false }, tooltip: { backgroundColor: '#21262d', titleColor: '#f0f6fc', bodyColor: '#8b949e', borderColor: '#30363d', borderWidth: 1, padding: 12, displayColors: false,
-                        callbacks: { title: items => { const x = items?.[0]?.parsed?.x; if (x == null || isNaN(x)) return ''; return new Date(x).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }, label: item => ['Avg','High','Low'][item.datasetIndex] + ': $' + item.raw.toFixed(2) }
+                        callbacks: {
+                            title: items => { const x = items?.[0]?.parsed?.x; if (x == null || isNaN(x)) return ''; return new Date(x).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); },
+                            label: item => ['Avg','High','Low'][item.datasetIndex] + ': $' + item.raw.toFixed(2)
+                        }
                     }},
-                    scales: { x: { type: 'time', time: { unit: state.days <= 60 ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM' } }, grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', maxTicksLimit: 8 } }, y: { position: 'right', grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', callback: v => '$' + v } } }
+                    scales: {
+                        x: { type: 'time', time: { unit: state.days <= 60 ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM' } }, grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', maxTicksLimit: 8 } },
+                        y: { position: 'right', grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', callback: v => '$' + v } }
+                    }
                 }
             });
         }
@@ -635,7 +686,6 @@
 
         function updateAllCards() {
             ['iceberg','romaine','hearts','broccoli','cauliflower','celery'].forEach(c => {
-                // Find best region for this commodity
                 let vegRegion = state.section === 'vegetables' ? getActiveRegion() : getCurrentVegSeason().region;
                 let dataArr = state.data.vegetables?.[c]?.[vegRegion] || [];
                 if (dataArr.length === 0) {
@@ -655,7 +705,6 @@
             });
 
             ['onion-yellow','onion-white','onion-red'].forEach(c => {
-                // Find best region for this commodity
                 let onionRegion = state.section === 'onions' ? getActiveRegion() : getCurrentOnionSeason().region;
                 let dataArr = state.data.onions?.[c]?.[onionRegion] || [];
                 if (dataArr.length === 0) {
@@ -712,7 +761,13 @@
             document.getElementById('regionSelect').addEventListener('change', e => { state.region = e.target.value; updateUI(); updateAllCards(); });
         }
 
-        async function init() { state.data = await fetchData(); console.log('Loaded data:', state.data); populateRegionDropdown(); setupEvents(); updateUI(); updateAllCards(); }
+        async function init() {
+            state.data = await fetchData();
+            console.log('Loaded regions (veg):', Object.keys(VEG_REGIONS));
+            console.log('Loaded regions (onion):', Object.keys(ONION_REGIONS));
+            console.log('Loaded data:', state.data);
+            populateRegionDropdown(); setupEvents(); updateUI(); updateAllCards();
+        }
         init();
     </script>
 </body>
