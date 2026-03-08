@@ -455,6 +455,254 @@
             </div>
         </div>
 
+        <!-- ── HOW TO READ GRAIN PRICES — collapsible ─────────────────── -->
+        <style>
+            #grainExplainer { display:none; }
+            .explainer-collapsed { max-width:1100px; margin:0 auto 16px; padding:0 16px; }
+            .explainer-trigger {
+                display:flex; align-items:center; justify-content:space-between;
+                padding:11px 18px; background:var(--bg-secondary); border:1px solid var(--border);
+                border-radius:8px; cursor:pointer; transition:border-color 0.15s;
+            }
+            .explainer-trigger:hover { border-color:var(--gold); }
+            .explainer-trigger-left { display:flex; align-items:center; gap:10px; }
+            .explainer-trigger-label { font-size:0.72rem; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-muted); font-weight:600; }
+            .explainer-trigger-pills { display:flex; gap:6px; }
+            .explainer-pill { font-size:0.65rem; padding:2px 8px; border-radius:20px; font-weight:600; letter-spacing:0.5px; }
+            .explainer-chevron { color:var(--text-muted); font-size:0.8rem; transition:transform 0.2s; }
+            .explainer-chevron.open { transform:rotate(180deg); }
+
+            /* Modal overlay */
+            .explainer-modal-overlay {
+                display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+                z-index:1000; align-items:center; justify-content:center; padding:20px;
+            }
+            .explainer-modal-overlay.open { display:flex; }
+            .explainer-modal {
+                background:var(--bg-secondary); border:1px solid var(--border);
+                border-radius:12px; width:100%; max-width:960px; max-height:88vh;
+                overflow-y:auto; animation:modalIn 0.18s ease;
+            }
+            @keyframes modalIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+            .explainer-modal-header {
+                display:flex; align-items:center; justify-content:space-between;
+                padding:16px 24px; border-bottom:1px solid var(--border);
+                position:sticky; top:0; background:var(--bg-secondary); z-index:1;
+            }
+            .explainer-modal-title { display:flex; align-items:center; gap:10px; }
+            .explainer-close {
+                background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+                color:var(--text-muted); cursor:pointer; padding:4px 10px; font-size:0.8rem;
+                transition:all 0.15s;
+            }
+            .explainer-close:hover { color:var(--text-primary); border-color:var(--text-muted); }
+
+            /* Concept grid */
+            .explainer-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); border-bottom:1px solid var(--border); }
+            .explainer-cell { padding:22px 24px; border-right:1px solid var(--border); }
+            .explainer-cell:last-child { border-right:none; }
+            .explainer-concept-label { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+            .explainer-concept-bar { width:12px; height:3px; border-radius:2px; }
+            .explainer-concept-bar.dashed { border-top:2px dashed; height:0; width:14px; }
+            .explainer-concept-name { font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+            .explainer-body { font-size:0.82rem; color:var(--text-primary); line-height:1.65; margin-bottom:12px; }
+            .explainer-tip { font-size:0.73rem; color:var(--text-muted); background:var(--bg-card); border-radius:6px; padding:8px 11px; line-height:1.5; }
+
+            /* Deep dive sections */
+            .explainer-deep { padding:20px 24px; border-bottom:1px solid var(--border); }
+            .explainer-deep-title { font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); font-weight:600; margin-bottom:14px; }
+            .explainer-deep-body { font-size:0.82rem; color:var(--text-primary); line-height:1.7; }
+            .explainer-deep-body p { margin:0 0 10px; }
+            .explainer-deep-body p:last-child { margin:0; }
+
+            /* Basis examples */
+            .basis-examples { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-top:14px; }
+            .basis-ex { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
+            .basis-ex-label { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-muted); font-weight:600; margin-bottom:8px; }
+            .basis-ex-math { font-size:0.8rem; color:var(--text-secondary); margin-bottom:6px; font-family:monospace; }
+            .basis-ex-result { font-size:0.85rem; font-weight:700; margin-bottom:6px; }
+            .basis-ex-interp { font-size:0.73rem; color:var(--text-muted); line-height:1.5; }
+
+            /* Price stack footer */
+            .explainer-footer { padding:14px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+            .explainer-stack { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; }
+            .explainer-stack-item { font-size:0.78rem; font-weight:600; }
+            .explainer-stack-op { font-size:0.73rem; color:var(--text-muted); }
+            .explainer-source { font-size:0.68rem; color:var(--text-muted); }
+        </style>
+
+        <div id="grainExplainer">
+            <div class="explainer-collapsed">
+                <!-- Collapsed trigger bar -->
+                <div class="explainer-trigger" onclick="document.getElementById('explainerModal').classList.add('open')">
+                    <div class="explainer-trigger-left">
+                        <div style="width:6px;height:6px;border-radius:50%;background:var(--gold)"></div>
+                        <span class="explainer-trigger-label">How to Read These Prices</span>
+                        <div class="explainer-trigger-pills">
+                            <span class="explainer-pill" style="background:var(--gold-dim);color:var(--gold)">Futures</span>
+                            <span class="explainer-pill" style="background:rgba(57,211,187,0.12);color:var(--teal)">Cash</span>
+                            <span class="explainer-pill" style="background:rgba(248,81,73,0.12);color:var(--red)">Basis</span>
+                            <span class="explainer-pill" style="background:rgba(188,140,255,0.12);color:var(--purple)">Organic Premium</span>
+                        </div>
+                    </div>
+                    <span style="color:var(--text-muted);font-size:0.75rem;display:flex;align-items:center;gap:6px;">
+                        <span>Expand</span><span style="font-size:1rem;">↗</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div class="explainer-modal-overlay" id="explainerModal" onclick="if(event.target===this)this.classList.remove('open')">
+            <div class="explainer-modal">
+
+                <!-- Modal header -->
+                <div class="explainer-modal-header">
+                    <div class="explainer-modal-title">
+                        <div style="width:6px;height:6px;border-radius:50%;background:var(--gold)"></div>
+                        <span style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);font-weight:600;">How to Read Grain Prices</span>
+                    </div>
+                    <button class="explainer-close" onclick="document.getElementById('explainerModal').classList.remove('open')">✕ Close</button>
+                </div>
+
+                <!-- 4 concept cards -->
+                <div class="explainer-grid">
+                    <!-- Futures -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar" style="background:var(--gold)"></div>
+                            <span class="explainer-concept-name" style="color:var(--gold)">Futures Price</span>
+                        </div>
+                        <div class="explainer-body">
+                            The price agreed on <em>today</em> for corn delivered at a future date — March, May, July, September, or December contracts. Set on the Chicago Mercantile Exchange (CME), it's the global benchmark that every corn, soy, or grain deal in the world is referenced against.
+                        </div>
+                        <div class="explainer-tip">💡 Think of it as the world's "stock price" for corn — moving every second based on weather, crop reports, export demand, and what traders think will happen next season.</div>
+                    </div>
+                    <!-- Cash -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar" style="background:var(--teal)"></div>
+                            <span class="explainer-concept-name" style="color:var(--teal)">Conv. Cash Price</span>
+                        </div>
+                        <div class="explainer-body">
+                            What a farmer actually receives at the grain elevator today, for conventional (non-organic) corn delivered right now. Cash price is always quoted as <strong style="color:var(--gold)">Futures ± Basis</strong> — so the futures market is literally the foundation of every physical sale.
+                        </div>
+                        <div class="explainer-tip">💡 Two elevators 50 miles apart can have different cash prices because their basis is different — driven by local supply, transportation costs, and buyer competition.</div>
+                    </div>
+                    <!-- Basis -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar dashed" style="border-color:var(--red)"></div>
+                            <span class="explainer-concept-name" style="color:var(--red)">Basis</span>
+                        </div>
+                        <div class="explainer-body">
+                            <strong style="color:var(--teal)">Cash</strong> minus <strong style="color:var(--gold)">Futures</strong>. Almost always negative — it's the local market's discount to the CME benchmark. Basis absorbs all the local factors that the global futures market can't see: storage space, trucking distance to the river, whether the local ethanol plant is running hard.
+                        </div>
+                        <div class="explainer-tip">💡 Basis "strengthens" when it gets less negative (good for sellers). It "weakens" when it gets more negative (bad for sellers).</div>
+                    </div>
+                    <!-- Organic Premium -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar dashed" style="border-color:var(--purple)"></div>
+                            <span class="explainer-concept-name" style="color:var(--purple)">Organic Premium</span>
+                        </div>
+                        <div class="explainer-body">
+                            <strong style="color:var(--purple)">Organic Cash</strong> minus <strong style="color:var(--teal)">Conv. Cash</strong>. The extra price organic farmers earn for certified grain. Typically $3–$8/bu for corn, $7–$12/bu for soy — but it compresses when organic acreage expands or food companies cut organic sourcing.
+                        </div>
+                        <div class="explainer-tip">💡 A shrinking premium is an early signal of either growing organic supply or weakening demand from manufacturers — often visible here before it shows up in news.</div>
+                    </div>
+                </div>
+
+                <!-- Deep dive: Futures as benchmark + hedging -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title">⚡ Why Futures Are the Standard for Every Cash Price</div>
+                    <div class="explainer-deep-body">
+                        <p>No matter where corn is grown or sold — Iowa, Illinois, Germany, Brazil — the price negotiation always starts with the CME futures quote. An Illinois elevator offering "$4.40 for corn" is really saying "December futures ($4.60) minus 20 cents basis." The futures price is the anchor; basis is the adjustment.</p>
+                        <p>This matters because it means <strong style="color:var(--text-primary)">a single market in Chicago sets the floor for prices paid to millions of farmers worldwide.</strong> When a drought in the Corn Belt pushes futures up $0.50, every elevator in the country raises its cash bids by roughly that same amount — automatically, within minutes.</p>
+                        <p>Futures also enable <strong style="color:var(--text-primary)">hedging</strong> — the practice of locking in a price before harvest to remove uncertainty. A farmer who planted corn in April and expects to sell in November can sell December corn futures today. If prices fall by harvest, the futures gain offsets the lower cash price. If prices rise, they miss some upside — but they guaranteed their operating margin when they planted. Food companies do the same in reverse, buying futures to lock in input costs.</p>
+                    </div>
+                </div>
+
+                <!-- Deep dive: Basis examples -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title">📍 Basis in the Real World — Three Scenarios</div>
+                    <div class="basis-examples">
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Strong Basis (River Elevator)</div>
+                            <div class="basis-ex-math">$4.55 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--green)">= −$0.05/bu</div>
+                            <div class="basis-ex-interp">Barge demand is high, the elevator is competing hard for grain. Nearly no discount — a great time to sell physical corn.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Typical Inland Elevator</div>
+                            <div class="basis-ex-math">$4.25 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--gold)">= −$0.35/bu</div>
+                            <div class="basis-ex-interp">Normal range for an elevator 150 miles from the river. Covers trucking, handling, and elevator margin. What you'd see on this chart most of the year.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Weak Basis (Post-Harvest Glut)</div>
+                            <div class="basis-ex-math">$3.85 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--red)">= −$0.75/bu</div>
+                            <div class="basis-ex-interp">Bins are full, elevators aren't competing for grain. Big discount — farmers who stored their corn and waited for basis to recover are now in the money.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Organic Basis Context</div>
+                            <div class="basis-ex-math">$10.20 org cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--purple)">= +$5.60/bu</div>
+                            <div class="basis-ex-interp">Organic corn trades at a massive positive basis — the organic premium overwhelms the typical negative basis. The premium reflects certification costs, identity preservation, and constrained supply.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- What moves organic cash -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title" style="color:var(--purple);">🌿 What Moves Organic Cash Prices?</div>
+                    <div class="explainer-deep-body">
+                        <p>Organic cash doesn't trade on an exchange — there's no "organic CME." Instead it floats on top of conventional futures as a negotiated premium, pulled in different directions by five forces:</p>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin-top:4px;">
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--gold); font-weight:700; margin-bottom:8px;">① Conventional Futures</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">The floor. No organic seller will take less than what conventional pays. When CME corn rallies, organic follows — but with a lag since it's not traded in real time.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--purple); font-weight:700; margin-bottom:8px;">② Certified Organic Supply</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Less than 1% of US corn acres are certified organic. A bad season hits this tiny pool hard — one drought year can spike the premium significantly. New certified acres take 3 years to come online.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--teal); font-weight:700; margin-bottom:8px;">③ Buyer Demand</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Organic dairies, poultry farms, and food manufacturers are the main buyers. When consumer demand for organic products softens — like during inflation squeezes — these buyers pull back and the premium compresses.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-secondary); font-weight:700; margin-bottom:8px;">④ Import Competition</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Historically a large share of US organic grain was imported from Ukraine, Turkey, and Romania. When import flows are healthy, they cap the domestic premium. Disruptions cause domestic organic to spike.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--amber, #f0883e); font-weight:700; margin-bottom:8px;">⑤ Certification Costs</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Organic certification, transition costs, lower yields, and segregated handling all add real costs for the farmer. The premium must stay high enough to compensate — otherwise acres don't transition.</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px; font-size:0.75rem; color:var(--text-muted); background:var(--bg-primary); border-radius:6px; padding:10px 14px; line-height:1.6; border:1px solid var(--border);">
+                        💡 <strong style="color:var(--text-secondary);">The chart tells the story:</strong> a <span style="color:var(--purple)">rising organic premium</span> means organic supply is tightening or buyer demand is picking up. A <span style="color:var(--purple)">falling premium</span> means more certified supply coming online, softer organic demand, or heavy import competition — even if the underlying futures price is flat.
+                    </div>
+                </div>
+
+                <!-- Price stack footer -->
+                <div class="explainer-footer">
+                    <div class="explainer-stack">
+                        <span class="explainer-stack-item" style="color:var(--gold)">Futures</span>
+                        <span class="explainer-stack-op">± basis</span>
+                        <span style="color:var(--border)">→</span>
+                        <span class="explainer-stack-item" style="color:var(--teal)">Conv. Cash</span>
+                        <span class="explainer-stack-op">+ organic premium</span>
+                        <span style="color:var(--border)">→</span>
+                        <span class="explainer-stack-item" style="color:var(--purple)">Organic Cash</span>
+                    </div>
+                    <span class="explainer-source">Data: CME Group · USDA AMS · updated daily</span>
+                </div>
+            </div>
+        </div>
+
         <div class="main-layout">
             <div class="chart-section">
                 <div class="chart-header">
@@ -904,7 +1152,8 @@
             document.getElementById('grainTabs').style.display = isCommodities             ? 'flex' : 'none';
             // Show/hide main vs grain section
             document.querySelector('.main-layout').style.display   = isCommodities ? 'none'  : 'grid';
-            document.getElementById('grainSection').style.display  = isCommodities ? 'block' : 'none';
+            document.getElementById('grainSection').style.display   = isCommodities ? 'block' : 'none';
+            document.getElementById('grainExplainer').style.display = isCommodities ? 'block' : 'none';
             // Section button active state
             document.querySelectorAll('.section-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.section === section));
             if (isCommodities) {
