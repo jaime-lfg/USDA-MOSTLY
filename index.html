@@ -1088,7 +1088,7 @@
             document.getElementById('grainStatsTitle').textContent = g.name + ' · ' + (grainState.days >= 9999 ? 'All Time' : grainState.days + 'D') + ' Stats';
 
             if (latest) {
-                document.getElementById('grainPrice').textContent = (latest.futures/100).toFixed(2);
+                document.getElementById('grainPrice').textContent = latest.futures.toFixed(2);
                 document.getElementById('grainMeta').textContent = 'Conv. Cash: $' + (latest.cash/100).toFixed(2) + '/bu  •  Organic: $' + (latest.organic/100).toFixed(2) + '/bu  •  Basis: ' + (latest.basis >= 0 ? '+' : '') + latest.basis.toFixed(1) + '¢';
 
                 // Period change badge
@@ -1125,7 +1125,7 @@
                 const latest = arr[arr.length-1], prev = arr[arr.length-2];
                 const col = GRAINS[g].color;
                 if (latest) {
-                    document.getElementById('grain-price-'+g).textContent = '$' + (latest.futures/100).toFixed(2);
+                    document.getElementById('grain-price-'+g).textContent = '$' + latest.futures.toFixed(2);
                     document.getElementById('grain-cash-'+g).textContent  = '$' + (latest.cash/100).toFixed(2);
                     document.getElementById('grain-basis-'+g).textContent = (latest.basis>=0?'+$':'-$') + Math.abs(latest.basis).toFixed(2);
                     document.getElementById('grain-org-'+g).textContent   = '$' + (latest.organic/100).toFixed(2);
