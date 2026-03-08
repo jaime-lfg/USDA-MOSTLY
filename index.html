@@ -1321,8 +1321,8 @@
                         { label: 'Futures',      data: period.map(d => d.futures), borderColor: g.color,       backgroundColor: grad, borderWidth: 2.5, fill: true,  tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
                         { label: 'Conv. Cash',   data: period.map(d => d.cash),    borderColor: g.cashColor,   borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
                         { label: 'Organic Cash', data: period.map(d => d.organic), borderColor: g.orgColor,    borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
-                        { label: 'Basis',        data: period.map(d => d.basis),   borderColor: 'rgba(248,81,73,0.7)',   borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y2' },
-                        { label: 'Org. Premium', data: period.map(d => d.orgPrem), borderColor: 'rgba(188,140,255,0.6)', borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y2' }
+                        { label: 'Basis',        data: period.map(d => d.basis),   borderColor: 'rgba(248,81,73,0.7)',   borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y' },
+                        { label: 'Org. Premium', data: period.map(d => d.orgPrem), borderColor: 'rgba(188,140,255,0.6)', borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y' }
                     ]
                 },
                 options: {
@@ -1339,8 +1339,7 @@
                     },
                     scales: {
                         x: { type:'time', time:{ unit: grainState.days<=60?'week':'month', displayFormats:{week:'MMM d',month:'MMM yy'} }, grid:{color:'rgba(48,54,61,0.5)'}, ticks:{color:'#6e7681',maxTicksLimit:8} },
-                        y:  { position:'right', grid:{color:'rgba(48,54,61,0.4)'}, ticks:{color:'#6e7681', callback:v=>'$'+v.toFixed(2)}, title:{display:true,text:'Price ($/bu)',color:'#6e7681',font:{size:10}} },
-                        y2: { position:'left',  grid:{display:false}, ticks:{color:'#6e7681', callback:v=>(v>=0?'+$':'-$')+Math.abs(v).toFixed(2)}, title:{display:true,text:'Spread ($/bu)',color:'#6e7681',font:{size:10}} }
+                        y: { position:'right', grid:{color:'rgba(48,54,61,0.4)'}, ticks:{color:'#6e7681', callback:v=>'$'+v.toFixed(2)}, title:{display:true,text:'Price ($/bu)',color:'#6e7681',font:{size:10}} }
                     }
                 }
             });
