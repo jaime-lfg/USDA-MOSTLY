@@ -149,13 +149,17 @@
         .price-value.no-data { font-size: 1.8rem; color: var(--text-muted); }
         .price-change {
             display: inline-flex;
+            flex-direction: column;
             align-items: center;
-            gap: 4px;
-            padding: 4px 10px;
+            gap: 1px;
+            padding: 6px 10px;
             border-radius: 6px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 600;
+            line-height: 1.3;
         }
+        .price-change .change-dollar { font-size: 0.95rem; }
+        .price-change .change-pct { font-size: 0.75rem; opacity: 0.85; }
         .price-change.up { background: var(--green-dim); color: var(--green); }
         .price-change.down { background: var(--red-dim); color: var(--red); }
         .price-change.flat { background: var(--bg-hover); color: var(--text-secondary); }
@@ -312,6 +316,7 @@
                             <button class="time-btn" data-days="90">90D</button>
                             <button class="time-btn" data-days="180">6M</button>
                             <button class="time-btn" data-days="365">1Y</button>
+                            <button class="time-btn" data-days="9999">All</button>
                         </div>
                         <div class="region-toggle">
                             <span>Region:</span>
@@ -656,11 +661,16 @@
 
             if (latest) {
                 priceEl.textContent = '$' + latest.avg.toFixed(2); priceEl.className = 'price-value';
-                if (prev) {
-                    const change = latest.avg - prev.avg, pct = (change / prev.avg) * 100;
+                const cutoffForChange = new Date(); cutoffForChange.setDate(cutoffForChange.getDate() - state.days);
+                const periodForChange = state.days >= 9999 ? dataArr : dataArr.filter(d => new Date(d.date) >= cutoffForChange);
+                const first = periodForChange[0];
+                if (first && first !== latest) {
+                    const change = latest.avg - first.avg, pct = (change / first.avg) * 100;
                     changeEl.style.display = 'inline-flex';
                     changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
-                    changeEl.innerHTML = '<span>' + (change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→') + '</span><span>$' + Math.abs(change).toFixed(2) + ' (' + Math.abs(pct).toFixed(1) + '%)</span>';
+                    const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
+                    const label = state.days >= 9999 ? 'all time' : state.days === 1 ? 'day/day' : state.days + 'd';
+                    changeEl.innerHTML = '<span class="change-dollar">' + arrow + ' $' + Math.abs(change).toFixed(2) + '</span><span class="change-pct">' + Math.abs(pct).toFixed(1) + '% ' + label + '</span>';
                 } else changeEl.style.display = 'none';
                 metaEl.textContent = 'Mostly: $' + latest.low.toFixed(2) + ' - $' + latest.high.toFixed(2) + (latest.demand ? ' • ' + latest.demand + ' demand' : '') + (latest.trend ? ' • ' + latest.trend : '');
 
