@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USDA FOB Produce Prices</title>
+    <title>USDA Market Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
     <style>
@@ -309,10 +309,10 @@
     <div class="container">
         <header>
             <div class="logo">
-                <span class="logo-icon">🥬</span>
+                <span class="logo-icon"></span>
                 <div class="logo-text">
-                    <h1>FOB Produce Prices</h1>
-                    <span>USDA Market News • MOSTLY Prices</span>
+                    <h1>USDA Market Dashboard</h1>
+                    <span>Produce FOB · Grain Futures · MOSTLY Prices</span>
                 </div>
             </div>
             <div class="season-badge">
@@ -322,7 +322,7 @@
         </header>
 
         <div class="section-toggle">
-            <button class="section-btn active" data-section="vegetables">🥬 Vegetables</button>
+            <button class="section-btn active" data-section="vegetables">🥬 Fresh Veg</button>
             <button class="section-btn" data-section="onions">🧅 Onions</button>
             <button class="section-btn" data-section="commodities">🌽 Commodities</button>
         </div>
@@ -766,7 +766,7 @@
             </div>
 
             <div class="sidebar">
-                <div class="sidebar-section-title">Vegetables</div>
+                <div class="sidebar-section-title">Fresh Veg</div>
                 <div class="price-card vegetable active" data-commodity="iceberg" data-section="vegetables">
                     <div class="card-header"><span class="card-title">Iceberg</span><span class="card-badge" id="badge-iceberg"></span></div>
                     <div class="card-price" id="price-iceberg">--</div>
@@ -872,14 +872,13 @@
         // Pattern-match against whatever keys exist in the dynamic dicts.
         function getCurrentVegSeason() {
             const m = new Date().getMonth() + 1;
-            const isWinter = [11,12,1,2,3,4].includes(m);
+            const isWinter = [11,12,1,2,3].includes(m);
             const patterns = isWinter
-                ? ['arizona', 'imperial', 'coachella', 'yuma', 'w-az']
+                ? ['western-arizona', 'arizona', 'w-az', 'yuma', 'imperial', 'coachella']
                 : ['salinas', 'watsonville', 'santa-maria', 'oxnard'];
-            for (const [k, v] of Object.entries(VEG_REGIONS)) {
-                if (patterns.some(p => k.includes(p))) {
-                    return { region: k, label: (isWinter ? 'Winter' : 'Summer') + ' \u2022 ' + v.name };
-                }
+            for (const pat of patterns) {
+                const match = Object.keys(VEG_REGIONS).find(k => k.includes(pat));
+                if (match) return { region: match, label: (isWinter ? 'Winter' : 'Summer') + ' \u2022 ' + VEG_REGIONS[match].name };
             }
             const fallback = Object.keys(VEG_REGIONS)[0] || 'unknown';
             return { region: fallback, label: VEG_REGIONS[fallback]?.name || 'No data yet' };
@@ -902,16 +901,32 @@
 
         function getActiveRegion() {
             if (state.region !== 'auto') return state.region;
-            const defaultRegion = state.section === 'vegetables' ? getCurrentVegSeason().region : getCurrentOnionSeason().region;
             const sectionData = state.section === 'vegetables' ? state.data.vegetables : state.data.onions;
-            const commodityData = sectionData?.[state.commodity]?.[defaultRegion] || [];
-            if (commodityData.length > 0) return defaultRegion;
             const regions = state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS;
-            for (const regionKey of Object.keys(regions)) {
-                const d = sectionData?.[state.commodity]?.[regionKey] || [];
-                if (d.length > 0) return regionKey;
+            const seasonalRegions = state.section === 'vegetables'
+                ? getCurrentVegSeason().region
+                : getCurrentOnionSeason().region;
+
+            // First: try the seasonal default if it has data for THIS commodity
+            if (sectionData?.[state.commodity]?.[seasonalRegions]?.length > 0) return seasonalRegions;
+
+            // Second: try other seasonal-priority regions in order (winter/summer patterns)
+            const m = new Date().getMonth() + 1;
+            const isWinter = [11,12,1,2,3].includes(m);
+            const seasonalPatterns = state.section === 'vegetables'
+                ? (isWinter ? ['western-arizona','arizona','w-az','yuma','imperial','coachella'] : ['salinas','watsonville','santa-maria','oxnard'])
+                : [];
+            for (const pat of seasonalPatterns) {
+                const match = Object.keys(regions).find(k => k.includes(pat));
+                if (match && sectionData?.[state.commodity]?.[match]?.length > 0) return match;
             }
-            return defaultRegion;
+
+            // Third: fall back to any region that has data for this commodity
+            for (const regionKey of Object.keys(regions)) {
+                if (sectionData?.[state.commodity]?.[regionKey]?.length > 0) return regionKey;
+            }
+
+            return seasonalRegions;
         }
         function getRegions() { return state.section === 'vegetables' ? VEG_REGIONS : ONION_REGIONS; }
         function getCommodities() { return state.section === 'vegetables' ? VEGETABLES : ONIONS; }
