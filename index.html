@@ -1,866 +1,1529 @@
-/**
- * USDA FOB MOSTLY Price Tracker - v3.5.1 (Fixed Inline PDF Parser)
- *
- * Fixes in v3.5.1 (vs 3.5):
- * - Stream boundary fix: strips trailing \r\n before endstream marker
- *   (all 36 streams in the PDF end with \r\n before "endstream")
- * - Byte scanning: finds stream/endstream markers by scanning the byte array
- *   directly instead of converting to string and using regex (which corrupts
- *   binary data with null bytes and high-byte characters)
- * - Zlib header: properly skips 2-byte zlib header before inflating
- * - Fallback chain: inflate → OCR → error (with logging at each step)
- *
- * Onion and grain logic: completely untouched.
- */
-
-var CONFIG = {
-  FOB_PDF_URL: 'https://www.ams.usda.gov/mnreports/fvdfob.pdf',
-  ONION_PDF_URL: 'https://www.ams.usda.gov/mnreports/fvdidnop.pdf',
-  TRACKED_COMMODITIES: [
-    'LETTUCE, ICEBERG',
-    'LETTUCE, ROMAINE',
-    'BROCCOLI',
-    'CAULIFLOWER',
-    'CELERY'
-  ],
-  TRACKED_SHIPPING_POINTS: [
-    'SANTA MARIA', 'IMPERIAL', 'COACHELLA', 'PALO VERDE',
-    'OXNARD', 'WESTERN ARIZONA', 'SALINAS', 'WATSONVILLE',
-    'HURON', 'SOUTH AND CENTRAL',
-  ],
-  ONION_TYPES: ['YELLOW', 'WHITE', 'RED'],
-  ONION_SHIPPING_POINTS: [
-    'COLUMBIA BASIN WASHINGTON', 'IDAHO', 'CENTRAL WISCONSIN',
-    'NEW YORK', 'TEXAS', 'GEORGIA'
-  ]
-};
-
-var PACKAGE_FILTERS = {
-  'LETTUCE, ICEBERG': ['24'],
-  'LETTUCE, ROMAINE': ['24', 'HEART'],
-  'BROCCOLI': ['14'],
-  'CAULIFLOWER': ['12'],
-  'CELERY': ['24', '30', 'HEART']
-};
-
-// Berries share the FOB PDF (BERRIES section, same fvdfob.pdf) but use
-// container-based packages (flats/cartons of oz-cups, lb-containers, etc.)
-// instead of veg's pack-count sizing, so they get their own tab + filters.
-var BERRIES_TAB = 'Berries';
-var BERRY_COMMODITIES = ['STRAWBERRIES', 'RASPBERRIES', 'BLUEBERRIES', 'BLACKBERRIES'];
-var BERRY_SHIPPING_POINTS = [
-  'OXNARD', 'SALINAS', 'WATSONVILLE', 'SANTA MARIA', 'SOUTH AND CENTRAL',
-  'NORTH CAROLINA', 'GEORGIA', 'OREGON', 'WASHINGTON',
-  'MEXICO', 'CANADA', 'BRITISH COLUMBIA', 'CHILE', 'PERU', 'GUATEMALA'
-];
-
-// =====================
-// MENU
-// =====================
-
-function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('USDA FOB Tracker')
-    .addItem('Initialize Sheet', 'initializeSheet')
-    .addItem('Fetch Today\'s Prices', 'fetchFOBPrices')
-    .addItem('Debug: Show All Parsed Data', 'debugShowAllParsed')
-    .addSeparator()
-    .addItem('Set Up Daily Trigger (6 PM ET)', 'setupDailyTrigger')
-    .addItem('Remove Triggers', 'removeAllTriggers')
-    .addSeparator()
-    .addItem('Berries: Initialize Tab', 'initBerriesSheet')
-    .addItem('Berries: Fetch Today\'s Prices', 'fetchBerryPrices')
-    .addItem('Debug: Show All Berries (Unfiltered)', 'debugShowAllBerries')
-    .addSeparator()
-    .addItem('Grains: Fetch Today', 'fetchAllGrainData')
-    .addItem('Grains: Backfill History', 'backfillAllGrainData')
-    .addItem('Grains: Diagnose', 'diagnoseFetches')
-    .addItem('Grains: Set Up Daily Trigger', 'setupGrainDailyTrigger')
-    .addToUi();
-}
-
-// =====================
-// INITIALIZATION (unchanged)
-// =====================
-
-function initializeSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  createOrGetSheet(ss, 'Today');
-  createOrGetSheet(ss, 'History');
-  setupTodaySheet(ss.getSheetByName('Today'));
-  setupHistorySheet(ss.getSheetByName('History'));
-  SpreadsheetApp.getUi().alert('Sheet initialized!\n\nClick "USDA FOB Tracker > Fetch Today\'s Prices" to get current prices.');
-}
-
-function createOrGetSheet(ss, name) {
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) sheet = ss.insertSheet(name);
-  return sheet;
-}
-
-function setupTodaySheet(sheet) {
-  sheet.clear();
-  sheet.getRange('A1').setValue('USDA FOB MOSTLY Prices').setFontSize(16).setFontWeight('bold');
-  sheet.getRange('A2').setValue('Last Updated:');
-  sheet.getRange('B2').setValue('Not yet fetched');
-  var headers = [['Shipping Point', 'Commodity', 'Package', 'Mostly Low', 'Mostly High', 'Mostly Avg', 'Market', 'Demand']];
-  sheet.getRange('A4:H4').setValues(headers).setFontWeight('bold').setBackground('#2e7d32').setFontColor('white');
-  sheet.setFrozenRows(4);
-}
-
-function setupHistorySheet(sheet) {
-  sheet.clear();
-  var headers = [['Date', 'Shipping Point', 'Commodity', 'Package', 'Mostly Low', 'Mostly High', 'Mostly Avg', 'Market', 'Demand']];
-  sheet.getRange('A1:I1').setValues(headers).setFontWeight('bold').setBackground('#1565c0').setFontColor('white');
-  sheet.setFrozenRows(1);
-}
-
-// Single running log (like Grains), not a Today/History pair — berries
-// don't need a "current snapshot" view, just the price history.
-function initBerriesSheet() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = createOrGetSheet(ss, BERRIES_TAB);
-  sheet.clear();
-  var headers = [['Date', 'Shipping Point', 'Commodity', 'Package', 'Organic', 'Mostly Low', 'Mostly High', 'Mostly Avg', 'Market', 'Demand']];
-  sheet.getRange('A1:J1').setValues(headers).setFontWeight('bold').setBackground('#ad1457').setFontColor('white');
-  sheet.setFrozenRows(1);
-  sheet.getRange(2, 6, sheet.getMaxRows() - 1, 3).setNumberFormat('$#,##0.00');
-  SpreadsheetApp.getUi().alert('Berries tab initialized!\n\nClick "USDA FOB Tracker > Berries: Fetch Today\'s Prices".');
-}
-
-// =====================
-// MAIN FETCH
-// =====================
-
-function fetchFOBPrices(showAlert) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var todaySheet = ss.getSheetByName('Today');
-  var historySheet = ss.getSheetByName('History');
-  todaySheet.getRange('B2').setValue('Fetching...');
-  SpreadsheetApp.flush();
-
-  try {
-    var allPrices = [];
-    var berryNewRows = 0;
-    var vegPdfText = fetchFOBPdfText(CONFIG.FOB_PDF_URL);
-    if (vegPdfText && vegPdfText.length > 100) {
-      var allParsed = parseVegetablesStructural(vegPdfText);
-      var filtered = filterTrackedPrices(allParsed);
-      allPrices = allPrices.concat(filtered);
-      berryNewRows = processBerriesFromText(vegPdfText);
-    }
-    var onionPdfText = fetchPDFAsTextOCR(CONFIG.ONION_PDF_URL);
-    if (onionPdfText && onionPdfText.length > 100) {
-      var onionPrices = parseOnionReport(onionPdfText);
-      allPrices = allPrices.concat(onionPrices);
-    }
-    var lastRow = todaySheet.getLastRow();
-    if (lastRow > 4) todaySheet.getRange(5, 1, lastRow - 4, 8).clear();
-    if (allPrices.length > 0) {
-      todaySheet.getRange(5, 1, allPrices.length, 8).setValues(allPrices);
-      todaySheet.getRange(5, 4, allPrices.length, 3).setNumberFormat('$#,##0.00');
-      var todayISO = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      var historyData = allPrices.map(function(row) { return [todayISO].concat(row); });
-      var newRows = dedupeHistory(historySheet, historyData);
-      if (newRows.length > 0) historySheet.getRange(historySheet.getLastRow() + 1, 1, newRows.length, 9).setValues(newRows);
-      todaySheet.getRange('B2').setValue(new Date().toLocaleString());
-      if (showAlert !== false) SpreadsheetApp.getUi().alert('Found ' + allPrices.length + ' prices!\n' + newRows.length + ' new rows added to History.\n' + berryNewRows + ' new berry rows added.');
-    } else {
-      todaySheet.getRange('B2').setValue('No prices found');
-      if (showAlert !== false) SpreadsheetApp.getUi().alert('No prices found.' + (berryNewRows ? ' (' + berryNewRows + ' new berry rows added.)' : ''));
-    }
-  } catch (error) {
-    todaySheet.getRange('B2').setValue('Error: ' + (error.message || 'Unknown'));
-    if (showAlert !== false) SpreadsheetApp.getUi().alert('Error: ' + (error.message || 'Unknown'));
-  }
-}
-
-// Shared by fetchFOBPrices (reuses the veg PDF text already in memory) and
-// fetchBerryPrices (fetches its own copy for standalone/manual runs).
-function processBerriesFromText(pdfText) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(BERRIES_TAB);
-  if (!sheet) { Logger.log('Berries tab missing — run initBerriesSheet() first'); return 0; }
-  var parsed = parseBerriesStructural(pdfText);
-  var filtered = filterBerryPrices(parsed);
-  if (filtered.length === 0) return 0;
-  var todayISO = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-  var historyData = filtered.map(function(row) { return [todayISO].concat(row); });
-  var newRows = dedupeBerryHistory(sheet, historyData);
-  if (newRows.length > 0) sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 10).setValues(newRows);
-  return newRows.length;
-}
-
-function dedupeBerryHistory(sheet, newRows) {
-  var existingKeys = {};
-  var lastRow = sheet.getLastRow();
-  if (lastRow > 1) {
-    var existing = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
-    for (var i = 0; i < existing.length; i++) { var r = existing[i]; existingKeys[r[0] + '|' + r[1] + '|' + r[2] + '|' + r[3] + '|' + r[4]] = true; }
-  }
-  var result = [];
-  for (var i = 0; i < newRows.length; i++) { var r = newRows[i], key = r[0] + '|' + r[1] + '|' + r[2] + '|' + r[3] + '|' + r[4]; if (!existingKeys[key]) { existingKeys[key] = true; result.push(r); } }
-  return result;
-}
-
-function fetchBerryPrices(showAlert) {
-  try {
-    var text = fetchFOBPdfText(CONFIG.FOB_PDF_URL);
-    if (!text || text.length <= 100) { if (showAlert !== false) SpreadsheetApp.getUi().alert('Could not fetch FOB PDF.'); return; }
-    var newRows = processBerriesFromText(text);
-    if (showAlert !== false) SpreadsheetApp.getUi().alert(newRows + ' new berry rows added to the Berries tab.');
-  } catch (error) {
-    if (showAlert !== false) SpreadsheetApp.getUi().alert('Error: ' + (error.message || 'Unknown'));
-  }
-}
-
-function dedupeHistory(historySheet, newRows) {
-  var existingKeys = {};
-  var lastRow = historySheet.getLastRow();
-  if (lastRow > 1) {
-    var existing = historySheet.getRange(2, 1, lastRow - 1, 4).getValues();
-    for (var i = 0; i < existing.length; i++) { var r = existing[i]; existingKeys[r[0] + '|' + r[1] + '|' + r[2] + '|' + r[3]] = true; }
-  }
-  var result = [];
-  for (var i = 0; i < newRows.length; i++) { var r = newRows[i], key = r[0] + '|' + r[1] + '|' + r[2] + '|' + r[3]; if (!existingKeys[key]) { existingKeys[key] = true; result.push(r); } }
-  return result;
-}
-
-// ==========================================================================
-// PDF BINARY EXTRACTION (v3.5.1 - proper byte scanning)
-// ==========================================================================
-
-function fetchFOBPdfText(pdfUrl) {
-  var response = UrlFetchApp.fetch(pdfUrl, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) throw new Error('PDF fetch failed: HTTP ' + response.getResponseCode());
-
-  try {
-    var signedBytes = response.getBlob().getBytes();
-    var bytes = [];
-    for (var i = 0; i < signedBytes.length; i++) bytes[i] = signedBytes[i] & 0xFF;
-    Logger.log('PDF size: ' + bytes.length + ' bytes');
-
-    var text = extractTextFromPDFBytes_(bytes);
-    if (text && text.length > 500) {
-      Logger.log('Binary extraction succeeded: ' + text.length + ' chars');
-      return text;
-    }
-    Logger.log('Binary extraction returned too little text (' + (text ? text.length : 0) + ' chars), falling back to OCR');
-  } catch (e) {
-    Logger.log('Binary PDF extraction failed: ' + e.message + '. Falling back to OCR.');
-  }
-  return fetchPDFAsTextOCR(pdfUrl);
-}
-
-/**
- * Find all occurrences of a byte sequence in a byte array.
- * Returns array of starting indices.
- */
-function findByteSequence_(bytes, seq) {
-  var positions = [];
-  for (var i = 0; i <= bytes.length - seq.length; i++) {
-    var match = true;
-    for (var j = 0; j < seq.length; j++) {
-      if (bytes[i + j] !== seq[j]) { match = false; break; }
-    }
-    if (match) positions.push(i);
-  }
-  return positions;
-}
-
-/**
- * Extract text from PDF bytes with column-aware ordering.
- */
-function extractTextFromPDFBytes_(bytes) {
-  // Byte sequences for stream markers
-  // "stream\r\n" = [115,116,114,101,97,109,13,10]
-  var STREAM_MARKER = [115,116,114,101,97,109,13,10];
-  // "stream\n" = [115,116,114,101,97,109,10] (fallback)
-  var STREAM_MARKER_LF = [115,116,114,101,97,109,10];
-  // "endstream" = [101,110,100,115,116,114,101,97,109]
-  var ENDSTREAM_MARKER = [101,110,100,115,116,114,101,97,109];
-
-  // Find all stream start positions
-  var streamStarts = findByteSequence_(bytes, STREAM_MARKER);
-  var streamStartsLF = findByteSequence_(bytes, STREAM_MARKER_LF);
-  // Merge and deduplicate, recording the actual data start offset
-  var dataStarts = [];
-  for (var i = 0; i < streamStarts.length; i++) dataStarts.push(streamStarts[i] + STREAM_MARKER.length);
-  for (var i = 0; i < streamStartsLF.length; i++) {
-    var pos = streamStartsLF[i] + STREAM_MARKER_LF.length;
-    var isDupe = false;
-    for (var j = 0; j < dataStarts.length; j++) { if (Math.abs(dataStarts[j] - pos) < 3) { isDupe = true; break; } }
-    if (!isDupe) dataStarts.push(pos);
-  }
-  dataStarts.sort(function(a, b) { return a - b; });
-
-  // Find all endstream positions
-  var endPositions = findByteSequence_(bytes, ENDSTREAM_MARKER);
-
-  Logger.log('Found ' + dataStarts.length + ' stream starts, ' + endPositions.length + ' endstream markers');
-
-  // Match each stream start to its nearest following endstream
-  var allPageTexts = [];
-  var textStreamCount = 0;
-
-  for (var s = 0; s < dataStarts.length; s++) {
-    var start = dataStarts[s];
-    // Find the first endstream after this start
-    var end = -1;
-    for (var e = 0; e < endPositions.length; e++) {
-      if (endPositions[e] > start) { end = endPositions[e]; break; }
-    }
-    if (end === -1) continue;
-
-    // Strip trailing \r\n before endstream
-    var dataEnd = end;
-    if (dataEnd > start && bytes[dataEnd - 1] === 10) dataEnd--; // \n
-    if (dataEnd > start && bytes[dataEnd - 1] === 13) dataEnd--; // \r
-
-    if (dataEnd <= start + 10) continue; // too small to be useful
-
-    // Extract stream bytes
-    var streamBytes = bytes.slice(start, dataEnd);
-
-    // Check if this is zlib (FlateDecode): CMF byte low nibble should be 8
-    if ((streamBytes[0] & 0x0F) !== 8) continue; // not deflate
-
-    // Skip 2-byte zlib header, inflate raw deflate data
-    var deflateBytes = streamBytes.slice(2);
-    var decompressed;
-    try {
-      decompressed = inflate_(deflateBytes);
-    } catch (e) {
-      continue; // skip streams that fail to decompress
-    }
-
-    // Convert to string (PDF operators are ASCII)
-    var content = '';
-    for (var i = 0; i < decompressed.length; i++) content += String.fromCharCode(decompressed[i]);
-
-    // Skip non-text streams
-    if (content.indexOf('Tj') === -1) continue;
-    textStreamCount++;
-
-    // Extract (x, y, text) from "x y Td ... (text) Tj" patterns
-    var fragments = [];
-    var re = /([\d.]+)\s+([\d.]+)\s+Td[^(]*\(([^)]+)\)\s*Tj/g;
-    var m;
-    while ((m = re.exec(content)) !== null) {
-      fragments.push({ x: parseFloat(m[1]), y: parseFloat(m[2]), text: m[3] });
-    }
-    if (fragments.length === 0) continue;
-
-    // Split into left/right columns (page width = 612, midpoint = 306)
-    var left = [], right = [];
-    for (var i = 0; i < fragments.length; i++) {
-      if (fragments[i].x < 306) left.push(fragments[i]);
-      else right.push(fragments[i]);
-    }
-    // Sort top-to-bottom (highest y first), then left-to-right
-    left.sort(function(a, b) { return b.y - a.y || a.x - b.x; });
-    right.sort(function(a, b) { return b.y - a.y || a.x - b.x; });
-
-    var leftText = left.map(function(f) { return f.text; }).join('\n');
-    var rightText = right.map(function(f) { return f.text; }).join('\n');
-    if (leftText || rightText) allPageTexts.push(leftText + '\n' + rightText);
-  }
-
-  Logger.log('Decompressed ' + textStreamCount + ' text streams, got ' + allPageTexts.length + ' pages of text');
-  return allPageTexts.join('\n');
-}
-
-// ==========================================================================
-// DEFLATE DECOMPRESSOR (RFC 1951)
-// ==========================================================================
-
-var INFLATE_LEN_BASE_ = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
-var INFLATE_LEN_EXTRA_ = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
-var INFLATE_DIST_BASE_ = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
-var INFLATE_DIST_EXTRA_ = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
-var INFLATE_CL_ORDER_ = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
-
-function inflate_(input) {
-  var ip = 0, bitBuf = 0, bitCnt = 0;
-  var out = [];
-
-  function bit() {
-    if (bitCnt === 0) {
-      if (ip >= input.length) throw new Error('inflate: unexpected end of input');
-      bitBuf = input[ip++]; bitCnt = 8;
-    }
-    var b = bitBuf & 1; bitBuf >>= 1; bitCnt--; return b;
-  }
-  function bits(n) {
-    var v = 0;
-    for (var i = 0; i < n; i++) v |= bit() << i;
-    return v;
-  }
-  function huf(tree) {
-    var n = tree;
-    for (var safety = 0; safety < 30; safety++) { // max code length is ~15 bits
-      if (!Array.isArray(n)) return n;
-      n = n[bit()];
-      if (n === null || n === undefined) throw new Error('inflate: invalid huffman code');
-    }
-    throw new Error('inflate: huffman decode loop');
-  }
-
-  function buildTree(lens) {
-    var mx = 0;
-    for (var i = 0; i < lens.length; i++) if (lens[i] > mx) mx = lens[i];
-    if (mx === 0) return [null, null];
-    var bl = [];
-    for (var i = 0; i <= mx; i++) bl[i] = 0;
-    for (var i = 0; i < lens.length; i++) if (lens[i]) bl[lens[i]]++;
-    var nc = [0]; var c = 0;
-    for (var b = 1; b <= mx; b++) { c = (c + (bl[b - 1] || 0)) << 1; nc[b] = c; }
-    var tree = [null, null];
-    for (var i = 0; i < lens.length; i++) {
-      if (!lens[i]) continue;
-      var code = nc[lens[i]]++;
-      var node = tree;
-      for (var b = lens[i] - 1; b >= 0; b--) {
-        var bi = (code >> b) & 1;
-        if (b === 0) { node[bi] = i; }
-        else {
-          if (node[bi] === null || node[bi] === undefined || !Array.isArray(node[bi])) node[bi] = [null, null];
-          node = node[bi];
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USDA Market Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --bg-hover: #30363d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --green: #3fb950;
+            --green-dim: rgba(63, 185, 80, 0.15);
+            --red: #f85149;
+            --red-dim: rgba(248, 81, 73, 0.15);
+            --blue: #58a6ff;
+            --blue-dim: rgba(88, 166, 255, 0.15);
+            --orange: #d29922;
+            --orange-dim: rgba(210, 153, 34, 0.15);
+            --gold: #e3b341;
+            --gold-dim: rgba(227, 179, 65, 0.13);
+            --teal: #39d3bb;
+            --teal-dim: rgba(57, 211, 187, 0.12);
+            --purple: #bc8cff;
+            --purple-dim: rgba(188, 140, 255, 0.12);
+            --amber: #f0883e;
+            --amber-dim: rgba(240, 136, 62, 0.13);
+            --berry: #ff6b81;
+            --berry-dim: rgba(255, 107, 129, 0.15);
+            --border: #30363d;
         }
-      }
-    }
-    return tree;
-  }
-
-  // Fixed Huffman trees
-  var fll = [];
-  for (var i = 0; i <= 143; i++) fll[i] = 8;
-  for (var i = 144; i <= 255; i++) fll[i] = 9;
-  for (var i = 256; i <= 279; i++) fll[i] = 7;
-  for (var i = 280; i <= 287; i++) fll[i] = 8;
-  var FLT = buildTree(fll);
-  var fdl = [];
-  for (var i = 0; i < 32; i++) fdl[i] = 5;
-  var FDT = buildTree(fdl);
-
-  function inflateBlock(lt, dt) {
-    for (var safety = 0; safety < 1000000; safety++) {
-      var sym = huf(lt);
-      if (sym < 256) { out.push(sym); }
-      else if (sym === 256) { return; }
-      else {
-        var li = sym - 257;
-        if (li >= INFLATE_LEN_BASE_.length) throw new Error('inflate: invalid length code ' + sym);
-        var len = INFLATE_LEN_BASE_[li] + bits(INFLATE_LEN_EXTRA_[li]);
-        var di = huf(dt);
-        if (di >= INFLATE_DIST_BASE_.length) throw new Error('inflate: invalid distance code ' + di);
-        var dist = INFLATE_DIST_BASE_[di] + bits(INFLATE_DIST_EXTRA_[di]);
-        var pos = out.length - dist;
-        if (pos < 0) throw new Error('inflate: invalid back-reference');
-        for (var i = 0; i < len; i++) out.push(out[pos + i]);
-      }
-    }
-    throw new Error('inflate: block too large');
-  }
-
-  for (var blockSafety = 0; blockSafety < 100; blockSafety++) {
-    var bfinal = bit();
-    var btype = bits(2);
-
-    if (btype === 0) { // stored (uncompressed)
-      bitBuf = 0; bitCnt = 0;
-      var len = input[ip] | (input[ip + 1] << 8);
-      ip += 4; // skip len and nlen
-      for (var i = 0; i < len; i++) out.push(input[ip++]);
-    } else if (btype === 1) { // fixed Huffman
-      inflateBlock(FLT, FDT);
-    } else if (btype === 2) { // dynamic Huffman
-      var hlit = bits(5) + 257;
-      var hdist = bits(5) + 1;
-      var hclen = bits(4) + 4;
-      var cll = [];
-      for (var i = 0; i < 19; i++) cll[i] = 0;
-      for (var i = 0; i < hclen; i++) cll[INFLATE_CL_ORDER_[i]] = bits(3);
-      var clt = buildTree(cll);
-      var al = [];
-      while (al.length < hlit + hdist) {
-        var s = huf(clt);
-        if (s < 16) { al.push(s); }
-        else if (s === 16) { var r = bits(2) + 3; var p = al.length > 0 ? al[al.length - 1] : 0; for (var i = 0; i < r; i++) al.push(p); }
-        else if (s === 17) { var r = bits(3) + 3; for (var i = 0; i < r; i++) al.push(0); }
-        else if (s === 18) { var r = bits(7) + 11; for (var i = 0; i < r; i++) al.push(0); }
-        else { throw new Error('inflate: invalid code length code ' + s); }
-      }
-      var litTree = buildTree(al.slice(0, hlit));
-      var distTree = buildTree(al.slice(hlit, hlit + hdist));
-      inflateBlock(litTree, distTree);
-    } else {
-      throw new Error('inflate: invalid block type ' + btype);
-    }
-    if (bfinal) break;
-  }
-  return out;
-}
-
-// ==========================================================================
-// OCR FALLBACK (for onion PDF and as fallback)
-// ==========================================================================
-
-function fetchPDFAsTextOCR(url) {
-  var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) throw new Error('PDF fetch failed: HTTP ' + response.getResponseCode());
-  var blob = response.getBlob();
-  var tempFile = DriveApp.createFile(blob.setName('temp_report.pdf'));
-  try {
-    var docFile = Drive.Files.copy({ title: 'temp_text', mimeType: MimeType.GOOGLE_DOCS }, tempFile.getId(), { ocr: true });
-    var doc = DocumentApp.openById(docFile.id);
-    var text = doc.getBody().getText();
-    DriveApp.getFileById(docFile.id).setTrashed(true);
-    tempFile.setTrashed(true);
-    return text;
-  } catch (e) { tempFile.setTrashed(true); throw new Error('PDF OCR failed: ' + e.message); }
-}
-
-// ==========================================================================
-// STRUCTURAL PARSER (handles --- prefix)
-// ==========================================================================
-
-function parseVegetablesStructural(text) {
-  var lines = text.split('\n');
-  var cleaned = [];
-  for (var i = 0; i < lines.length; i++) { var t = lines[i].trim(); if (t.length > 0) cleaned.push(t); }
-  var vegBounds = findSectionBounds(cleaned, /^VEGETABLES$/i, /^(?:ONIONS\s+AND\s+POTATOES|CORN\s+AND\s+GRAIN)/i);
-  var vegLines = cleaned.slice(vegBounds.start, vegBounds.end);
-  var blocks = splitIntoShippingPointBlocks(vegLines);
-  var allEntries = [];
-  for (var b = 0; b < blocks.length; b++) {
-    var entries = parseShippingPointBlock(blocks[b]);
-    for (var e = 0; e < entries.length; e++) allEntries.push(entries[e]);
-  }
-  return allEntries;
-}
-
-// BERRIES section sits before CITRUS FRUITS in the same fvdfob.pdf report.
-// splitIntoShippingPointBlocks/parseShippingPointBlock are commodity-agnostic
-// (they just look for "COMMODITY: DEMAND/MARKET..." headers), so they're
-// reused as-is; only the section boundary and package parsing differ.
-function parseBerriesStructural(text) {
-  var lines = text.split('\n');
-  var cleaned = [];
-  for (var i = 0; i < lines.length; i++) { var t = lines[i].trim(); if (t.length > 0) cleaned.push(t); }
-  var start = 0, end = cleaned.length;
-  for (var j = 0; j < cleaned.length; j++) if (/^BERRIES$/i.test(cleaned[j])) { start = j + 1; break; }
-  for (var k = start; k < cleaned.length; k++) if (/^CITRUS\s+FRUITS/i.test(cleaned[k])) { end = k; break; }
-  var berryLines = cleaned.slice(start, end);
-  var blocks = splitIntoShippingPointBlocks(berryLines);
-  var allEntries = [];
-  for (var b = 0; b < blocks.length; b++) {
-    var entries = parseShippingPointBlock(blocks[b]);
-    for (var e = 0; e < entries.length; e++) allEntries.push(entries[e]);
-  }
-  return allEntries;
-}
-
-function findSectionBounds(lines, startP, endP) {
-  var start = 0, end = lines.length;
-  for (var i = 0; i < lines.length; i++) if (startP.test(lines[i].trim())) { start = i + 1; break; }
-  if (start === 0) for (var j = 0; j < lines.length; j++) if (/^VEGETABLES/i.test(lines[j].trim()) && lines[j].trim().length < 20) { start = j + 1; break; }
-  for (var k = start; k < lines.length; k++) if (endP.test(lines[k])) { end = k; break; }
-  return { start: start, end: end };
-}
-
-function splitIntoShippingPointBlocks(vegLines) {
-  var fobI = []; for (var i = 0; i < vegLines.length; i++) if (isFOBLine(vegLines[i])) fobI.push(i);
-  if (fobI.length === 0) return [];
-  var blocks = [];
-  for (var f = 0; f < fobI.length; f++) {
-    var idx = fobI[f];
-    var name = extractShippingPointName(vegLines, idx);
-    var cs = idx + 1;
-    while (cs < vegLines.length) {
-      var skip = vegLines[cs].trim();
-      if (/^(Shipping\s+Point\s+)?Basis$/i.test(skip) || /^\d{4}\s*Season$/i.test(skip)) cs++;
-      else break;
-    }
-    var ce = (f + 1 < fobI.length) ? findNameStart(vegLines, fobI[f + 1]) : vegLines.length;
-    if (ce <= cs) ce = cs;
-    blocks.push({ name: name, lines: vegLines.slice(cs, ce) });
-  }
-  return blocks;
-}
-
-function isFOBLine(l) { return /Sales\s+F\.?O\.?B\.?/i.test(l) || /F\.?O\.?B\.?\s+Shipping/i.test(l) || /^Delivered\s+Sales,?\s+Shipping\s+Point\s+Basis$/i.test(l.trim()); }
-
-function extractShippingPointName(lines, idx) {
-  var np = [];
-  var fl = lines[idx], fm = fl.match(/^(.+?)\s*Sales\s+F\.?O\.?B\.?/i);
-  if (fm && fm[1].trim().length > 2) np.push(fm[1].trim());
-  for (var i = idx - 1; i >= 0 && i >= idx - 5; i--) {
-    var l = lines[i].trim(); if (!l) continue;
-    if (/mostly/i.test(l) || (/\d+\.\d{2}/.test(l) && !/PAGE\s+\d+/i.test(l))) break;
-    if (/^(cartons|flats|sacks|bushel)/i.test(l) || /^-{1,5}\s*[A-Z]/.test(l)) break;
-    var uc = l.replace(/[^A-Z]/g, '').length, tc = Math.max(l.replace(/\s/g, '').length, 1);
-    if (uc / tc > 0.6 || /^(AND\s|THROUGH\s)/.test(l)) np.unshift(l); else break;
-  }
-  return np.join(' ').replace(/\s+/g, ' ').replace(/National\s+FOB\s+Review.*/i, '').replace(/PAGE\s+\d+.*/i, '').trim();
-}
-
-function findNameStart(lines, idx) {
-  var fl = lines[idx], fm = fl.match(/^(.+?)\s*Sales\s+F\.?O\.?B\.?/i);
-  var nof = (fm && fm[1].trim().length > 2);
-  for (var i = idx - 1; i >= 0 && i >= idx - 5; i--) {
-    var l = lines[i].trim(); if (!l) continue;
-    if (/mostly/i.test(l) || (/\d+\.\d{2}/.test(l) && !/PAGE\s+\d+/i.test(l))) return nof ? idx : i + 1;
-    if (/^(cartons|flats|sacks|bushel)/i.test(l) || /^-{1,5}\s*[A-Z]/.test(l)) return nof ? idx : i + 1;
-    var uc = l.replace(/[^A-Z]/g, '').length, tc = Math.max(l.replace(/\s/g, '').length, 1);
-    if (uc / tc > 0.6 || /^(AND\s|THROUGH\s)/.test(l)) continue; else return nof ? idx : i + 1;
-  }
-  return Math.max(0, idx - 5);
-}
-
-// ==========================================================================
-// BLOCK PARSING
-// ==========================================================================
-
-function cleanCommodityName(name) {
-  var q = /^(?:\w*SIONAL|OCCASIONAL|HIGHER|LOWER|AND|MUCH|SLIGHTLY|VERY)\s+/i, c = name;
-  for (var i = 0; i < 8; i++) { var b = c; c = c.replace(q, ''); if (c === b) break; }
-  return c.trim();
-}
-
-function splitMultiCommodityLine(line) {
-  var u = line.toUpperCase(), p = /[A-Z][A-Z, ]{2,40}:\s*(?:SUPPLY|DEMAND|MARKET|PRICES|SALES|INSUFFICIENT)/g, pos = [], m;
-  while ((m = p.exec(u)) !== null) pos.push(m.index);
-  if (pos.length <= 1) return [line];
-  var parts = [];
-  for (var i = 0; i < pos.length; i++) { var s = pos[i], e = (i + 1 < pos.length) ? pos[i + 1] : line.length; var pt = line.substring(s, e).trim(); if (pt.length > 0) parts.push(pt); }
-  return parts;
-}
-
-function stripDashes(l) { return l.replace(/^[\-–—]{1,5}\s*/, ''); }
-
-function parseShippingPointBlock(block) {
-  var results = [], sp = block.name; if (!sp) return results;
-  var lines = [];
-  for (var i = 0; i < block.lines.length; i++) { var parts = splitMultiCommodityLine(block.lines[i]); for (var j = 0; j < parts.length; j++) lines.push(parts[j]); }
-  var curComm = '', curMkt = '', curDem = '', isOrg = false;
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i], upper = line.toUpperCase(), stripped = stripDashes(upper);
-    var cm = stripped.match(/^([A-Z][A-Z, ]{0,40}?)\s*:\s*(SUPPLY|DEMAND|MARKET|PRICES|SALES|INSUFFICIENT)/);
-    if (cm) {
-      var raw = cm[1].trim();
-      if (raw.indexOf('ORGANIC') === 0) { isOrg = true; curComm = cleanCommodityName(raw.replace(/^ORGANIC\s*/, '').trim()); }
-      else { isOrg = raw.indexOf('ORGANIC') > -1; curComm = cleanCommodityName(raw.replace(/\s*ORGANIC\s*/, '').trim()); }
-      var ctx = [stripDashes(line)]; for (var h = i + 1; h < Math.min(i + 3, lines.length); h++) ctx.push(stripDashes(lines[h]));
-      var hdr = ctx.join(' ').toUpperCase(); curMkt = extractMarket(hdr); curDem = extractDemand(hdr);
-      if (upper.indexOf('MOSTLY') > -1) { var mp = extractMostlyPricesFromLine(line); for (var m = 0; m < mp.length; m++) results.push({ shippingPoint: sp, commodity: curComm, pkg: determinePackage(line, lines, i, mp[m].charIndex, curComm), low: mp[m].low, high: mp[m].high, market: curMkt, demand: curDem, isOrganic: isOrg }); }
-      continue;
-    }
-    if (/^\s*ORGANIC\b/i.test(line) && curComm) isOrg = true;
-    if (upper.indexOf('MOSTLY') === -1 || !curComm) continue;
-    var mp = extractMostlyPricesFromLine(line);
-    for (var m = 0; m < mp.length; m++) results.push({ shippingPoint: sp, commodity: curComm, pkg: determinePackage(line, lines, i, mp[m].charIndex, curComm), low: mp[m].low, high: mp[m].high, market: curMkt, demand: curDem, isOrganic: isOrg });
-  }
-  return results;
-}
-
-// ==========================================================================
-// PRICE & PACKAGE EXTRACTION (unchanged)
-// ==========================================================================
-
-function extractMostlyPricesFromLine(line) {
-  var results = [], match;
-  var rr = /mostly\s+\$?(\d+\.?\d*)\s*[-–]\s*\$?(\d+\.?\d*)/gi;
-  while ((match = rr.exec(line)) !== null) results.push({ low: parseFloat(match[1]), high: parseFloat(match[2]), charIndex: match.index });
-  if (results.length === 0) { var sr = /mostly\s+\$?(\d+\.?\d*)(?:\s|$|,|;)/gi; while ((match = sr.exec(line)) !== null) { var v = parseFloat(match[1]); results.push({ low: v, high: v, charIndex: match.index }); } }
-  return results;
-}
-
-// Berries are packaged as "flats/cartons N <size>-<oz|lb|pint> cups/containers"
-// (e.g. "flats 12 6-oz cups", "cartons 8 18-oz containers") rather than veg's
-// simple pack-count sizing, so they need their own extractor. The descriptor
-// always sits immediately before the price, so anchor the match to end-of-string.
-function stripTrailingPriceNoise(s) {
-  var prev;
-  do { prev = s; s = s.replace(/\s*\$?\d+(?:\.\d{1,2})?\s*[-–]?\s*$/, '').trim(); } while (s !== prev && s.length > 0);
-  return s;
-}
-
-function extractBerryPackage(tb) {
-  var m = tb.match(/((?:FLATS?|CARTONS?)\s+\d+\s+\d+(?:\/\d+)?[\s\-]*(?:OZ|LB|PINT|QT)\.?\s+(?:CUPS?|CONTAINERS?|BASKETS?|BAGS?))(?:\s+WITH\s+LIDS)?(?:\s+([A-Z]+(?:-[A-Z]+)?))?\s*$/);
-  if (!m) return '';
-  var pkg = m[1].replace(/\s+/g, ' ').trim();
-  if (m[2] && !/^(MOSTLY|OCCASIONAL|SUPPLIES|WIDE|FEW)$/.test(m[2])) pkg += ' ' + m[2];
-  return pkg;
-}
-
-function findBerryPackage(tb, fc) {
-  return extractBerryPackage(tb) || extractBerryPackage(fc) || extractBerryPackage(stripTrailingPriceNoise(fc));
-}
-
-function determinePackage(line, allLines, lineIdx, charIndex, commodity) {
-  var tb = line.substring(0, charIndex).toUpperCase(), pl = lineIdx > 0 ? allLines[lineIdx - 1].toUpperCase() : '', fc = pl + ' ' + tb;
-  if (BERRY_COMMODITIES.indexOf(commodity) > -1) {
-    var bp = findBerryPackage(tb, fc);
-    if (bp) return bp;
-  }
-  if (commodity === 'CELERY') {
-    var lh = tb.lastIndexOf('HEART'), ld2 = Math.max(tb.lastIndexOf('2 DOZEN'), tb.lastIndexOf('2 DOZ')), ld25 = Math.max(tb.lastIndexOf('2 1/2 DOZEN'), tb.lastIndexOf('2 1/2 DOZ')), ld3 = Math.max(tb.lastIndexOf('3 DOZEN'), tb.lastIndexOf('3 DOZ'));
-    var latest = Math.max(lh, ld2, ld25, ld3);
-    if (latest === lh && lh > -1) return 'HEARTS'; if (latest === ld25 && ld25 > -1) return '30s'; if (latest === ld3 && ld3 > -1) return '36s'; if (latest === ld2 && ld2 > -1) return '24s';
-    if (fc.lastIndexOf('HEART') > Math.max(fc.lastIndexOf('2 DOZEN'), fc.lastIndexOf('2 DOZ')) && fc.indexOf('HEART') > -1) return 'HEARTS';
-    if (fc.indexOf('2 1/2 DOZEN') > -1 || fc.indexOf('2 1/2 DOZ') > -1) return '30s'; if (fc.indexOf('3 DOZEN') > -1 || fc.indexOf('3 DOZ') > -1) return '36s'; if (fc.indexOf('2 DOZEN') > -1 || fc.indexOf('2 DOZ') > -1) return '24s';
-    return '30s';
-  }
-  if (commodity === 'LETTUCE, ROMAINE') { if (tb.lastIndexOf('HEART') > tb.lastIndexOf('24')) return 'HEARTS'; if (tb.lastIndexOf('24') > -1) return '24s'; if (fc.lastIndexOf('HEART') > fc.lastIndexOf('24')) return 'HEARTS'; return '24s'; }
-  var sp = /(\d+)S\b/gi, sm, sms = []; while ((sm = sp.exec(tb)) !== null) sms.push(sm); if (sms.length > 0) return sms[sms.length - 1][1] + 's';
-  if (tb.indexOf('CROWN CUT') > -1 || tb.indexOf('SHORT TRIM') > -1) return 'CROWN CUT';
-  var pp = /(\d+)S\b/gi, pm, pms = []; while ((pm = pp.exec(pl)) !== null) pms.push(pm); if (pms.length > 0) return pms[pms.length - 1][1] + 's';
-  if (pl.indexOf('CROWN CUT') > -1 || pl.indexOf('SHORT TRIM') > -1) return 'CROWN CUT';
-  return '';
-}
-
-// ==========================================================================
-// FILTERING (unchanged)
-// ==========================================================================
-
-function filterTrackedPrices(allEntries) {
-  var results = [];
-  for (var i = 0; i < allEntries.length; i++) {
-    var e = allEntries[i], isSCCA = /SOUTH\s+AND\s+CENTRAL/i.test(e.shippingPoint);
-    if (e.isOrganic && !isSCCA) continue;
-    var su = e.shippingPoint.toUpperCase(), tracked = false;
-    for (var s = 0; s < CONFIG.TRACKED_SHIPPING_POINTS.length; s++) if (su.indexOf(CONFIG.TRACKED_SHIPPING_POINTS[s].toUpperCase()) > -1) { tracked = true; break; }
-    if (!tracked) continue;
-    var tc = false;
-    for (var c = 0; c < CONFIG.TRACKED_COMMODITIES.length; c++) if (e.commodity.toUpperCase() === CONFIG.TRACKED_COMMODITIES[c].toUpperCase()) { tc = true; break; }
-    if (!tc || !passesPackageFilter(e.commodity, e.pkg)) continue;
-    results.push([normalizeShippingPoint(e.shippingPoint), e.commodity, e.pkg, e.low, e.high, (e.low + e.high) / 2, e.market, e.demand]);
-  }
-  return results;
-}
-
-function passesPackageFilter(c, p) { var f = PACKAGE_FILTERS[c]; if (!f) return true; var u = p.toUpperCase(); for (var i = 0; i < f.length; i++) if (u.indexOf(f[i].toUpperCase()) > -1) return true; return false; }
-
-// Unlike filterTrackedPrices, organic rows are kept (flagged, not dropped) —
-// berries commonly quote conventional and organic side by side on one line.
-function filterBerryPrices(allEntries) {
-  var results = [];
-  for (var i = 0; i < allEntries.length; i++) {
-    var e = allEntries[i];
-    var su = e.shippingPoint.toUpperCase(), tracked = false;
-    for (var s = 0; s < BERRY_SHIPPING_POINTS.length; s++) if (su.indexOf(BERRY_SHIPPING_POINTS[s]) > -1) { tracked = true; break; }
-    if (!tracked) continue;
-    var tc = false;
-    for (var c = 0; c < BERRY_COMMODITIES.length; c++) if (e.commodity.toUpperCase() === BERRY_COMMODITIES[c]) { tc = true; break; }
-    if (!tc) continue;
-    results.push([normalizeShippingPoint(e.shippingPoint), e.commodity, e.pkg, e.isOrganic ? 'YES' : '', e.low, e.high, (e.low + e.high) / 2, e.market, e.demand]);
-  }
-  return results;
-}
-
-function normalizeShippingPoint(raw) {
-  var u = raw.toUpperCase();
-  if (u.indexOf('IMPERIAL') > -1 && u.indexOf('COACHELLA') > -1 && u.indexOf('PALO VERDE') > -1) return 'IMPERIAL';
-  if (u.indexOf('IMPERIAL') > -1 && u.indexOf('COACHELLA') > -1 && u.indexOf('WESTERN AZ') > -1) return 'IMPERIAL/W.AZ COMBINED';
-  if (u.indexOf('IMPERIAL') > -1 && u.indexOf('COACHELLA') > -1) return 'IMPERIAL/COACHELLA';
-  if (u.indexOf('SOUTH AND CENTRAL') > -1 && u.indexOf('CALIFORNIA') > -1 && u.indexOf('MEXICO') > -1) return 'S&C CA / MEXICO';
-  if (u.indexOf('SOUTH AND CENTRAL') > -1 && u.indexOf('CALIFORNIA') > -1) return 'SOUTH & CENTRAL CA';
-  if (u.indexOf('SANTA MARIA') > -1) return 'SANTA MARIA'; if (u.indexOf('WESTERN ARIZONA') > -1) return 'WESTERN ARIZONA';
-  if (u.indexOf('OXNARD') > -1) return 'OXNARD'; if (u.indexOf('SALINAS') > -1 || u.indexOf('WATSONVILLE') > -1) return 'SALINAS-WATSONVILLE';
-  if (u.indexOf('HURON') > -1) return 'HURON'; return raw.replace(/\s+/g, ' ').substring(0, 60);
-}
-
-// ==========================================================================
-// MARKET / DEMAND (unchanged)
-// ==========================================================================
-
-function extractMarket(t) {
-  if (t.indexOf('MARKET MUCH HIGHER') > -1) return 'MUCH HIGHER'; if (t.indexOf('MARKET SLIGHTLY HIGHER') > -1) return 'SLIGHTLY HIGHER';
-  if (t.indexOf('MARKET HIGHER') > -1) return 'HIGHER'; if (t.indexOf('MARKET MUCH LOWER') > -1) return 'MUCH LOWER';
-  if (t.indexOf('MARKET SLIGHTLY LOWER') > -1) return 'SLIGHTLY LOWER'; if (t.indexOf('MARKET LOWER') > -1) return 'LOWER';
-  if (t.indexOf('MARKET ABOUT STEADY') > -1) return 'ABOUT STEADY'; if (t.indexOf('MARKET STEADY') > -1) return 'STEADY'; return '';
-}
-function extractDemand(t) {
-  if (t.indexOf('DEMAND EXCEEDS') > -1) return 'EXCEEDS SUPPLY'; if (t.indexOf('DEMAND VERY GOOD') > -1) return 'VERY GOOD';
-  if (t.indexOf('DEMAND FAIRLY GOOD') > -1) return 'FAIRLY GOOD'; if (t.indexOf('DEMAND GOOD') > -1) return 'GOOD';
-  if (t.indexOf('DEMAND MODERATE') > -1) return 'MODERATE'; if (t.indexOf('DEMAND FAIRLY LIGHT') > -1) return 'FAIRLY LIGHT';
-  if (t.indexOf('DEMAND LIGHT') > -1) return 'LIGHT'; return '';
-}
-
-// ==========================================================================
-// ONION PARSING (unchanged)
-// ==========================================================================
-
-function parseOnionReport(text) {
-  var results = []; var os = text.toUpperCase().indexOf('ONION'); if (os === -1) return results;
-  var ot = text.substring(os), secs = ot.split(/---/);
-  for (var s = 0; s < secs.length; s++) {
-    var sec = secs[s], us = sec.toUpperCase(); if (us.indexOf('JUMBO') === -1) continue;
-    var sp = '';
-    if (us.indexOf('COLUMBIA BASIN') > -1 || us.indexOf('UMATILLA') > -1) sp = 'COLUMBIA BASIN WASHINGTON';
-    else if (us.indexOf('IDAHO') > -1 || us.indexOf('MALHEUR') > -1) sp = 'IDAHO';
-    else if (us.indexOf('WISCONSIN') > -1) sp = 'CENTRAL WISCONSIN';
-    else if (us.indexOf('NEW YORK') > -1) sp = 'NEW YORK';
-    else if (us.indexOf('TEXAS') > -1) sp = 'TEXAS';
-    else if (us.indexOf('GEORGIA') > -1 || us.indexOf('VIDALIA') > -1) sp = 'GEORGIA';
-    else if (us.indexOf('PERU') > -1) continue;
-    if (!sp) continue;
-    var mkt = '', dem = '';
-    if (us.indexOf('DEMAND') > -1 && us.indexOf('GOOD') > -1) dem = 'GOOD'; else if (us.indexOf('MODERATE') > -1) dem = 'MODERATE'; else if (us.indexOf('LIGHT') > -1) dem = 'LIGHT';
-    if (us.indexOf('ABOUT STEADY') > -1) mkt = 'ABOUT STEADY'; else if (us.indexOf('STEADY') > -1) mkt = 'STEADY'; else if (us.indexOf('HIGHER') > -1) mkt = 'HIGHER'; else if (us.indexOf('LOWER') > -1) mkt = 'LOWER';
-    for (var c = 0; c < CONFIG.ONION_TYPES.length; c++) {
-      var color = CONFIG.ONION_TYPES[c];
-      var regex = new RegExp(color + '\\s+(?:GLOBE\\s+TYPE|SPANISH\\s+)?(?:HYBRID)?[^J]*?(?:U\\.?S\\.?\\s+ONE\\s+)?[^J]*?(?:\\d+\\s+LB\\s+SACKS\\s+)?JUMBO\\s+(\\d+\\.?\\d*)\\s*[-–]\\s*(\\d+\\.?\\d*)\\s*(?:MOSTLY\\s+(\\d+\\.?\\d*)(?:\\s*[-–]\\s*(\\d+\\.?\\d*))?)?', 'i');
-      var match = us.match(regex);
-      if (match) { var low, high; if (match[3]) { low = parseFloat(match[3]); high = match[4] ? parseFloat(match[4]) : low; } else { low = parseFloat(match[1]); high = parseFloat(match[2]); } results.push([sp, 'ONIONS, DRY ' + color, 'jumbo', low, high, (low + high) / 2, mkt, dem]); }
-    }
-  }
-  return results;
-}
-
-// ==========================================================================
-// TRIGGERS (unchanged)
-// ==========================================================================
-
-function setupDailyTrigger() { removeAllTriggers(); ScriptApp.newTrigger('fetchFOBPricesIfMarketDay').timeBased().atHour(18).everyDays(1).inTimezone('America/New_York').create(); SpreadsheetApp.getUi().alert('Daily trigger set for 6 PM ET.'); }
-function fetchFOBPricesIfMarketDay() { var d = new Date().getDay(); if (d === 0 || d === 6) return; fetchFOBPrices(false); }
-function removeAllTriggers() { var t = ScriptApp.getProjectTriggers(); for (var i = 0; i < t.length; i++) ScriptApp.deleteTrigger(t[i]); }
-
-// ==========================================================================
-// DEBUG
-// ==========================================================================
-
-function debugShowAllParsed() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ds = ss.getSheetByName('Debug'); if (!ds) ds = ss.insertSheet('Debug'); ds.clear();
-  ds.getRange('A1:I1').setValues([['Shipping Point', 'Commodity', 'Package', 'Mostly Low', 'Mostly High', 'Mostly Avg', 'Market', 'Demand', 'Is Organic']]).setFontWeight('bold').setBackground('#6a1b9a').setFontColor('white');
-  try {
-    var text = fetchFOBPdfText(CONFIG.FOB_PDF_URL);
-    if (text && text.length > 100) {
-      var parsed = parseVegetablesStructural(text);
-      if (parsed.length > 0) {
-        var data = parsed.map(function(p) { return [p.shippingPoint, p.commodity, p.pkg, p.low, p.high, (p.low + p.high) / 2, p.market, p.demand, p.isOrganic ? 'YES' : '']; });
-        ds.getRange(2, 1, data.length, 9).setValues(data);
-      }
-      SpreadsheetApp.getUi().alert('Debug: ' + parsed.length + ' total entries (unfiltered). Check "Debug" sheet.');
-    }
-  } catch (e) { SpreadsheetApp.getUi().alert('Error: ' + e.message); }
-}
-
-function debugShowAllBerries() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ds = ss.getSheetByName('Debug Berries'); if (!ds) ds = ss.insertSheet('Debug Berries'); ds.clear();
-  ds.getRange('A1:I1').setValues([['Shipping Point', 'Commodity', 'Package', 'Mostly Low', 'Mostly High', 'Mostly Avg', 'Market', 'Demand', 'Is Organic']]).setFontWeight('bold').setBackground('#ad1457').setFontColor('white');
-  try {
-    var text = fetchFOBPdfText(CONFIG.FOB_PDF_URL);
-    if (text && text.length > 100) {
-      var parsed = parseBerriesStructural(text);
-      if (parsed.length > 0) {
-        var data = parsed.map(function(p) { return [p.shippingPoint, p.commodity, p.pkg, p.low, p.high, (p.low + p.high) / 2, p.market, p.demand, p.isOrganic ? 'YES' : '']; });
-        ds.getRange(2, 1, data.length, 9).setValues(data);
-      }
-      SpreadsheetApp.getUi().alert('Debug: ' + parsed.length + ' total berry entries (unfiltered). Check "Debug Berries" sheet.');
-    }
-  } catch (e) { SpreadsheetApp.getUi().alert('Error: ' + e.message); }
-}
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .logo { display: flex; align-items: center; gap: 12px; }
+        .logo-icon { font-size: 32px; }
+        .logo-text h1 { font-size: 1.4rem; font-weight: 600; }
+        .logo-text span { color: var(--text-muted); font-size: 0.8rem; }
+        .season-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--blue-dim);
+            border: 1px solid var(--blue);
+            border-radius: 20px;
+            font-size: 0.75rem;
+            color: var(--blue);
+            font-weight: 500;
+        }
+        .season-badge .dot {
+            width: 8px; height: 8px;
+            background: var(--blue);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .section-toggle {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 20px;
+            background: var(--bg-secondary);
+            padding: 4px;
+            border-radius: 10px;
+            width: fit-content;
+        }
+        .section-btn {
+            padding: 10px 24px;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-btn:hover { color: var(--text-primary); }
+        .section-btn.active { background: var(--bg-hover); color: var(--text-primary); }
+        .commodity-tabs { display: flex; gap: 6px; margin-bottom: 24px; flex-wrap: wrap; }
+        .tab {
+            padding: 10px 18px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .tab.active.vegetable { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+        .tab.active.onion { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); }
+        .tab.active.corn { background: var(--gold-dim); border-color: var(--gold); color: var(--gold); }
+        .tab.active.soy  { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+        .tab.active.berry { background: var(--berry-dim); border-color: var(--berry); color: var(--berry); }
+        /* ── GRAIN SECTION ── */
+        .grain-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+        @media (max-width: 1024px) { .grain-layout { grid-template-columns: 1fr; } }
+        .grain-legend { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; align-items: center; }
+        .grain-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); }
+        .grain-legend-line { width: 20px; height: 2.5px; border-radius: 1px; flex-shrink: 0; }
+        .grain-chart-container { position: relative; height: 300px; }
+        .spread-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+        .spread-card { background: var(--bg-card); border-radius: 8px; padding: 12px 14px; border: 1px solid var(--border); }
+        .spread-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 4px; }
+        .spread-value { font-size: 1.2rem; font-weight: 700; }
+        .spread-value.neg { color: var(--red); }
+        .spread-value.pos { color: var(--purple); }
+        .spread-explain { font-size: 0.7rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+        .grain-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: all 0.15s; }
+        .grain-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+        .grain-card.active.corn { border-color: var(--gold); background: linear-gradient(135deg, var(--gold-dim), transparent); }
+        .grain-card.active.soy  { border-color: var(--amber); background: linear-gradient(135deg, var(--amber-dim), transparent); }
+        .grain-card-price { font-size: 1.4rem; font-weight: 700; margin-bottom: 2px; }
+        .grain-card-sub { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 10px; }
+        .grain-card-rows { display: flex; flex-direction: column; gap: 5px; }
+        .grain-card-row { display: flex; justify-content: space-between; font-size: 0.78rem; }
+        .grain-card-row-label { color: var(--text-muted); }
+        .grain-card-row-value { font-weight: 600; }
+        .grain-card-row-value.teal   { color: var(--teal); }
+        .grain-card-row-value.purple { color: var(--purple); }
+        .grain-card-row-value.red    { color: var(--red); }
+        .grain-divider { height: 1px; background: var(--border); margin: 7px 0; }
+        .grain-price-value { font-size: 2.8rem; font-weight: 700; letter-spacing: -2px; }
+        .grain-price-unit  { font-size: 0.8rem; color: var(--text-muted); align-self: flex-end; padding-bottom: 10px; margin-left: -4px; }
+        .grain-stats { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+        .grain-stat-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+        .grain-stat-row:last-child { border-bottom: none; }
+        .grain-data-sources { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-size: 0.71rem; color: var(--text-muted); line-height: 1.8; }
+        .grain-src { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 5px; }
+        .grain-src:last-child { margin-bottom: 0; }
+        .grain-src-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+        .main-layout { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+        @media (max-width: 1024px) { .main-layout { grid-template-columns: 1fr; } }
+        .chart-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .price-display h2 {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .pack-size {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .shipping-point {
+            font-size: 0.75rem;
+            padding: 3px 8px;
+            background: var(--bg-hover);
+            border-radius: 4px;
+            color: var(--text-muted);
+        }
+        .price-row { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+        .price-value { font-size: 2.8rem; font-weight: 700; letter-spacing: -2px; }
+        .price-value.no-data { font-size: 1.8rem; color: var(--text-muted); }
+        .price-change {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        .price-change .change-dollar { font-size: 0.95rem; }
+        .price-change .change-pct { font-size: 0.75rem; opacity: 0.85; }
+        .price-change.up { background: var(--green-dim); color: var(--green); }
+        .price-change.down { background: var(--red-dim); color: var(--red); }
+        .price-change.flat { background: var(--bg-hover); color: var(--text-secondary); }
+        .price-meta { color: var(--text-muted); font-size: 0.8rem; margin-top: 6px; }
+        .time-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+        .time-range { display: flex; background: var(--bg-card); border-radius: 8px; padding: 3px; gap: 2px; }
+        .time-btn {
+            padding: 6px 14px;
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .time-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+        .time-btn.active { background: var(--bg-hover); color: var(--text-primary); }
+        .region-toggle { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted); }
+        .region-toggle select {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px 8px;
+            color: var(--text-primary);
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .chart-container { position: relative; height: 400px; margin-top: 16px; }
+        .sidebar { display: flex; flex-direction: column; gap: 12px; }
+        .sidebar-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0 4px;
+            margin-top: 8px;
+        }
+        .sidebar-section-title:first-child { margin-top: 0; }
+        .price-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .price-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+        .price-card.active.vegetable { border-color: var(--green); background: linear-gradient(135deg, var(--green-dim), transparent); }
+        .price-card.active.onion { border-color: var(--orange); background: linear-gradient(135deg, var(--orange-dim), transparent); }
+        .price-card.active.berry { border-color: var(--berry); background: linear-gradient(135deg, var(--berry-dim), transparent); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+        .card-title { font-size: 0.85rem; font-weight: 600; }
+        .card-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+        .card-badge.up { background: var(--green-dim); color: var(--green); }
+        .card-badge.down { background: var(--red-dim); color: var(--red); }
+        .card-badge.flat { background: var(--bg-hover); color: var(--text-muted); }
+        .card-price { font-size: 1.4rem; font-weight: 700; margin-bottom: 2px; }
+        .card-range { font-size: 0.7rem; color: var(--text-muted); }
+        .card-sparkline { height: 35px; max-height: 35px; margin-top: 10px; overflow: hidden; }
+        .market-stats {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .stats-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: var(--text-secondary); }
+        .stat-value { font-weight: 600; }
+        footer {
+            margin-top: 32px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .footer-text { font-size: 0.75rem; color: var(--text-muted); }
+        .footer-text a { color: var(--blue); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <span class="logo-icon"></span>
+                <div class="logo-text">
+                    <h1>USDA Market Dashboard</h1>
+                    <span>Produce FOB · Grain Futures · MOSTLY Prices</span>
+                </div>
+            </div>
+            <div class="season-badge">
+                <span class="dot"></span>
+                <span id="seasonLabel">Winter Season</span>
+            </div>
+        </header>
+        <div class="section-toggle">
+            <button class="section-btn active" data-section="vegetables">🥬 Fresh Veg</button>
+            <button class="section-btn" data-section="onions">🧅 Onions</button>
+            <button class="section-btn" data-section="berries">🫐 Berries</button>
+            <button class="section-btn" data-section="commodities">🌽 Commodities</button>
+        </div>
+        <div class="commodity-tabs" id="vegTabs">
+            <button class="tab vegetable active" data-commodity="iceberg">Iceberg</button>
+            <button class="tab vegetable" data-commodity="romaine">Romaine</button>
+            <button class="tab vegetable" data-commodity="hearts">Romaine Hearts</button>
+            <button class="tab vegetable" data-commodity="broccoli">Broccoli</button>
+            <button class="tab vegetable" data-commodity="cauliflower">Cauliflower</button>
+            <button class="tab vegetable" data-commodity="celery">Celery</button>
+        </div>
+        <div class="commodity-tabs" id="onionTabs" style="display: none;">
+            <button class="tab onion active" data-commodity="onion-yellow">Yellow</button>
+            <button class="tab onion" data-commodity="onion-white">White</button>
+            <button class="tab onion" data-commodity="onion-red">Red</button>
+        </div>
+        <div class="commodity-tabs" id="berryTabs" style="display: none;">
+            <button class="tab berry active" data-commodity="strawberries">🍓 Strawberries</button>
+            <button class="tab berry" data-commodity="raspberries">Raspberries</button>
+            <button class="tab berry" data-commodity="blueberries">🫐 Blueberries</button>
+            <button class="tab berry" data-commodity="blackberries">Blackberries</button>
+        </div>
+        <div class="commodity-tabs" id="grainTabs" style="display: none;">
+            <button class="tab corn active" data-grain="corn">🌽 Corn</button>
+            <button class="tab soy" data-grain="soy">🫘 Soy</button>
+        </div>
+        <!-- Explainer trigger bar -->
+        <div id="grainExplainer" style="display:none; max-width:1100px; margin:0 auto 12px; padding:0 16px;">
+            <div class="explainer-trigger" onclick="document.getElementById('explainerModal').classList.add('open')">
+                <div class="explainer-trigger-left">
+                    <span class="explainer-trigger-label">📖 How to Read These Prices</span>
+                    <div style="width:1px;height:16px;background:var(--border);"></div>
+                    <div class="explainer-trigger-pills">
+                        <span class="explainer-pill" style="background:rgba(227,179,65,0.15);color:var(--gold);border-color:rgba(227,179,65,0.35);">Futures</span>
+                        <span class="explainer-pill" style="background:rgba(57,211,187,0.12);color:var(--teal);border-color:rgba(57,211,187,0.3);">Cash</span>
+                        <span class="explainer-pill" style="background:rgba(248,81,73,0.12);color:var(--red);border-color:rgba(248,81,73,0.3);">Basis</span>
+                        <span class="explainer-pill" style="background:rgba(188,140,255,0.12);color:var(--purple);border-color:rgba(188,140,255,0.3);">Organic Premium</span>
+                    </div>
+                </div>
+                <div class="explainer-expand">
+                    <span>Expand</span>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M7 1h4v4M5 7L11 1M1 5v6h6"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <!-- ══ GRAIN SECTION ══════════════════════════════════════════════════ -->
+        <div id="grainSection" style="display:none;">
+            <div class="grain-layout">
+                <div class="chart-section">
+                    <div class="chart-header">
+                        <div class="price-display">
+                            <h2>
+                                <span id="grainName">Corn</span>
+                                <span class="shipping-point" id="grainSource">CME Futures</span>
+                            </h2>
+                            <div class="pack-size">dollars per bushel ($/bu)</div>
+                            <div class="price-row">
+                                <span class="grain-price-value" id="grainPrice">--</span>
+                                <span class="grain-price-unit">/bu</span>
+                                <span class="price-change" id="grainChange" style="display:none;"></span>
+                            </div>
+                            <div class="price-meta" id="grainMeta">Loading...</div>
+                        </div>
+                        <div class="time-controls">
+                            <div class="time-range" id="grainTimeRange">
+                                <button class="time-btn" data-days="30">30D</button>
+                                <button class="time-btn active" data-days="60">60D</button>
+                                <button class="time-btn" data-days="90">90D</button>
+                                <button class="time-btn" data-days="180">6M</button>
+                                <button class="time-btn" data-days="365">1Y</button>
+                                <button class="time-btn" data-days="9999">All</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grain-legend">
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--gold)"></div> Futures (CME)</div>
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--teal)"></div> Conv. Cash</div>
+                        <div class="grain-legend-item"><div class="grain-legend-line" style="background:var(--purple)"></div> Organic Cash</div>
+                        <div class="grain-legend-item" style="color:var(--text-muted)"><div class="grain-legend-line" style="width:20px;border-top:2px dashed rgba(248,81,73,0.7);height:0;margin-top:1px;"></div> Basis</div>
+                        <div class="grain-legend-item" style="color:var(--text-muted)"><div class="grain-legend-line" style="width:20px;border-top:2px dashed rgba(188,140,255,0.6);height:0;margin-top:1px;"></div> Org. Premium</div>
+                    </div>
+                    <div class="grain-chart-container">
+                        <canvas id="grainChart"></canvas>
+                    </div>
+                    <div class="spread-grid">
+                        <div class="spread-card">
+                            <div class="spread-label">📉 Basis (Conv. Cash − Futures)</div>
+                            <div class="spread-value neg" id="basisValue">--</div>
+                            <div class="spread-explain" id="basisExplain">Cash vs futures spread.</div>
+                            <div class="spread-explain" style="margin-top:4px; color:var(--text-muted); font-style:italic;">Illinois elevator · USDA MARS 3192</div>
+                        </div>
+                        <div class="spread-card">
+                            <div class="spread-label">🌿 Organic Premium (Org − Conv)</div>
+                            <div class="spread-value pos" id="orgPremValue">--</div>
+                            <div class="spread-explain" id="orgPremExplain">Organic price above conventional.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sidebar">
+                    <div class="sidebar-section-title">Grains</div>
+                    <div class="grain-card corn active" data-grain="corn">
+                        <div class="card-header">
+                            <span class="card-title">🌽 Corn</span>
+                            <span class="card-badge" id="grain-badge-corn"></span>
+                        </div>
+                        <div class="grain-card-price" id="grain-price-corn" style="color:var(--gold)">--</div>
+                        <div class="grain-card-sub">ZC=F · front-month</div>
+                        <div class="grain-card-rows">
+                            <div class="grain-card-row"><span class="grain-card-row-label">Conv. Cash</span><span class="grain-card-row-value teal" id="grain-cash-corn">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Basis</span><span class="grain-card-row-value red" id="grain-basis-corn">--</span></div>
+                            <div class="grain-divider"></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Organic Cash</span><span class="grain-card-row-value purple" id="grain-org-corn">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Org. Premium</span><span class="grain-card-row-value purple" id="grain-orgprem-corn">--</span></div>
+                        </div>
+                        <canvas class="card-sparkline" id="grain-spark-corn"></canvas>
+                    </div>
+                    <div class="grain-card soy" data-grain="soy">
+                        <div class="card-header">
+                            <span class="card-title">🫘 Soy</span>
+                            <span class="card-badge" id="grain-badge-soy"></span>
+                        </div>
+                        <div class="grain-card-price" id="grain-price-soy" style="color:var(--amber)">--</div>
+                        <div class="grain-card-sub">ZS=F · front-month</div>
+                        <div class="grain-card-rows">
+                            <div class="grain-card-row"><span class="grain-card-row-label">Conv. Cash</span><span class="grain-card-row-value teal" id="grain-cash-soy">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Basis</span><span class="grain-card-row-value red" id="grain-basis-soy">--</span></div>
+                            <div class="grain-divider"></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Organic Cash</span><span class="grain-card-row-value purple" id="grain-org-soy">--</span></div>
+                            <div class="grain-card-row"><span class="grain-card-row-label">Org. Premium</span><span class="grain-card-row-value purple" id="grain-orgprem-soy">--</span></div>
+                        </div>
+                        <canvas class="card-sparkline" id="grain-spark-soy"></canvas>
+                    </div>
+                    <div class="grain-stats">
+                        <div class="stats-title" id="grainStatsTitle">Corn · Stats</div>
+                        <div class="grain-stat-row"><span class="stat-label">Futures High</span><span class="stat-value" id="gstat-high">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Futures Low</span><span class="stat-value" id="gstat-low">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Conv. Cash Avg</span><span class="stat-value" style="color:var(--teal)" id="gstat-cash">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Avg Basis</span><span class="stat-value" style="color:var(--red)" id="gstat-basis">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Org. Cash Avg</span><span class="stat-value" style="color:var(--purple)" id="gstat-org">--</span></div>
+                        <div class="grain-stat-row"><span class="stat-label">Avg Org. Premium</span><span class="stat-value" style="color:var(--purple)" id="gstat-orgprem">--</span></div>
+                    </div>
+                    <div class="grain-data-sources">
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--gold)"></div><div><strong style="color:var(--text-secondary)">Futures</strong> — Yahoo Finance (ZC=F, ZS=F) · daily feed</div></div>
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--teal)"></div><div><strong style="color:var(--text-secondary)">Conv. Cash</strong> — USDA AMS Grain Report 3192 · Illinois elevators · logged via Apps Script</div></div>
+                        <div class="grain-src"><div class="grain-src-dot" style="background:var(--purple)"></div><div><strong style="color:var(--text-secondary)">Organic Cash</strong> — USDA AMS Organic Grain Report · weekly</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- ── HOW TO READ GRAIN PRICES — collapsible ─────────────────── -->
+        <style>
+            #grainExplainer { display:none; }
+            .explainer-collapsed { max-width:1100px; margin:0 auto 20px; padding:0 16px; }
+            .explainer-trigger {
+                display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+                padding:12px 18px 12px 20px;
+                background: linear-gradient(135deg, rgba(248,81,73,0.06) 0%, rgba(227,179,65,0.04) 50%, rgba(188,140,255,0.05) 100%);
+                border:1px solid rgba(248,81,73,0.25);
+                border-left: 3px solid var(--red);
+                border-radius:8px; cursor:pointer;
+                position:relative;
+                transition: all 0.2s ease;
+                box-shadow: 0 0 16px rgba(248,81,73,0.08), inset 0 1px 0 rgba(255,255,255,0.03);
+            }
+            .explainer-trigger:hover {
+                background: linear-gradient(135deg, rgba(248,81,73,0.1) 0%, rgba(227,179,65,0.06) 50%, rgba(188,140,255,0.08) 100%);
+                border-color: rgba(248,81,73,0.5);
+                border-left-color: var(--red);
+                box-shadow: 0 0 24px rgba(248,81,73,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
+                transform: translateY(-1px);
+            }
+            .explainer-trigger-left { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+            .explainer-trigger-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:2px; color:var(--text-secondary); font-weight:700; white-space:nowrap; }
+            .explainer-trigger-pills { display:flex; gap:7px; flex-wrap:wrap; }
+            .explainer-pill {
+                font-size:0.68rem; padding:4px 11px; border-radius:20px; font-weight:700;
+                letter-spacing:0.3px; border:1px solid transparent; transition: all 0.15s;
+            }
+            .explainer-trigger:hover .explainer-pill { filter: brightness(1.15); }
+            .explainer-expand {
+                display:flex; align-items:center; gap:6px; font-size:0.72rem; font-weight:600;
+                color:var(--text-secondary); white-space:nowrap; letter-spacing:0.5px;
+                background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+                padding:5px 12px; transition: all 0.15s;
+            }
+            .explainer-trigger:hover .explainer-expand {
+                color:var(--text-primary); border-color:var(--gold); background:var(--gold-dim);
+            }
+            /* Modal overlay */
+            .explainer-modal-overlay {
+                display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+                z-index:1000; align-items:center; justify-content:center; padding:20px;
+            }
+            .explainer-modal-overlay.open { display:flex; }
+            .explainer-modal {
+                background:var(--bg-secondary); border:1px solid var(--border);
+                border-radius:12px; width:100%; max-width:960px; max-height:88vh;
+                overflow-y:auto; animation:modalIn 0.18s ease;
+            }
+            @keyframes modalIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
+            .explainer-modal-header {
+                display:flex; align-items:center; justify-content:space-between;
+                padding:16px 24px; border-bottom:1px solid var(--border);
+                position:sticky; top:0; background:var(--bg-secondary); z-index:1;
+            }
+            .explainer-modal-title { display:flex; align-items:center; gap:10px; }
+            .explainer-close {
+                background:var(--bg-card); border:1px solid var(--border); border-radius:6px;
+                color:var(--text-muted); cursor:pointer; padding:4px 10px; font-size:0.8rem;
+                transition:all 0.15s;
+            }
+            .explainer-close:hover { color:var(--text-primary); border-color:var(--text-muted); }
+            /* Concept grid */
+            .explainer-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); border-bottom:1px solid var(--border); }
+            .explainer-cell { padding:22px 24px; border-right:1px solid var(--border); }
+            .explainer-cell:last-child { border-right:none; }
+            .explainer-concept-label { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+            .explainer-concept-bar { width:12px; height:3px; border-radius:2px; }
+            .explainer-concept-bar.dashed { border-top:2px dashed; height:0; width:14px; }
+            .explainer-concept-name { font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; font-weight:700; }
+            .explainer-body { font-size:0.82rem; color:var(--text-primary); line-height:1.65; margin-bottom:12px; }
+            .explainer-tip { font-size:0.73rem; color:var(--text-muted); background:var(--bg-card); border-radius:6px; padding:8px 11px; line-height:1.5; }
+            /* Deep dive sections */
+            .explainer-deep { padding:20px 24px; border-bottom:1px solid var(--border); }
+            .explainer-deep-title { font-size:0.68rem; text-transform:uppercase; letter-spacing:1px; color:var(--text-muted); font-weight:600; margin-bottom:14px; }
+            .explainer-deep-body { font-size:0.82rem; color:var(--text-primary); line-height:1.7; }
+            .explainer-deep-body p { margin:0 0 10px; }
+            .explainer-deep-body p:last-child { margin:0; }
+            /* Basis examples */
+            .basis-examples { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px; margin-top:14px; }
+            .basis-ex { background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
+            .basis-ex-label { font-size:0.65rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-muted); font-weight:600; margin-bottom:8px; }
+            .basis-ex-math { font-size:0.8rem; color:var(--text-secondary); margin-bottom:6px; font-family:monospace; }
+            .basis-ex-result { font-size:0.85rem; font-weight:700; margin-bottom:6px; }
+            .basis-ex-interp { font-size:0.73rem; color:var(--text-muted); line-height:1.5; }
+            /* Price stack footer */
+            .explainer-footer { padding:14px 24px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+            .explainer-stack { display:flex; align-items:center; gap:8px; flex-wrap:wrap; flex:1; }
+            .explainer-stack-item { font-size:0.78rem; font-weight:600; }
+            .explainer-stack-op { font-size:0.73rem; color:var(--text-muted); }
+            .explainer-source { font-size:0.68rem; color:var(--text-muted); }
+        </style>
+        <!-- Modal -->
+        <div class="explainer-modal-overlay" id="explainerModal" onclick="if(event.target===this)this.classList.remove('open')">
+            <div class="explainer-modal">
+                <!-- Modal header -->
+                <div class="explainer-modal-header">
+                    <div class="explainer-modal-title">
+                        <div style="width:6px;height:6px;border-radius:50%;background:var(--gold)"></div>
+                        <span style="font-size:0.72rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);font-weight:600;">How to Read Grain Prices</span>
+                    </div>
+                    <button class="explainer-close" onclick="document.getElementById('explainerModal').classList.remove('open')">✕ Close</button>
+                </div>
+                <!-- 4 concept cards -->
+                <div class="explainer-grid">
+                    <!-- Futures -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar" style="background:var(--gold)"></div>
+                            <span class="explainer-concept-name" style="color:var(--gold)">Futures Price</span>
+                        </div>
+                        <div class="explainer-body">
+                            The price agreed on <em>today</em> for corn delivered at a future date — March, May, July, September, or December contracts. Set on the Chicago Mercantile Exchange (CME), it's the global benchmark that every corn, soy, or grain deal in the world is referenced against.
+                        </div>
+                        <div class="explainer-tip">💡 Think of it as the world's "stock price" for corn — moving every second based on weather, crop reports, export demand, and what traders think will happen next season.</div>
+                    </div>
+                    <!-- Cash -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar" style="background:var(--teal)"></div>
+                            <span class="explainer-concept-name" style="color:var(--teal)">Conv. Cash Price</span>
+                        </div>
+                        <div class="explainer-body">
+                            What a farmer actually receives at the grain elevator today, for conventional (non-organic) corn delivered right now. Cash price is always quoted as <strong style="color:var(--gold)">Futures ± Basis</strong> — so the futures market is literally the foundation of every physical sale.
+                        </div>
+                        <div class="explainer-tip">💡 Two elevators 50 miles apart can have different cash prices because their basis is different — driven by local supply, transportation costs, and buyer competition.</div>
+                    </div>
+                    <!-- Basis -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar dashed" style="border-color:var(--red)"></div>
+                            <span class="explainer-concept-name" style="color:var(--red)">Basis</span>
+                        </div>
+                        <div class="explainer-body">
+                            <strong style="color:var(--teal)">Cash</strong> minus <strong style="color:var(--gold)">Futures</strong>. Almost always negative — it's the local market's discount to the CME benchmark. Basis absorbs all the local factors that the global futures market can't see: storage space, trucking distance to the river, whether the local ethanol plant is running hard.
+                        </div>
+                        <div class="explainer-tip">💡 Basis "strengthens" when it gets less negative (good for sellers). It "weakens" when it gets more negative (bad for sellers).</div>
+                    </div>
+                    <!-- Organic Premium -->
+                    <div class="explainer-cell">
+                        <div class="explainer-concept-label">
+                            <div class="explainer-concept-bar dashed" style="border-color:var(--purple)"></div>
+                            <span class="explainer-concept-name" style="color:var(--purple)">Organic Premium</span>
+                        </div>
+                        <div class="explainer-body">
+                            <strong style="color:var(--purple)">Organic Cash</strong> minus <strong style="color:var(--teal)">Conv. Cash</strong>. The extra price organic farmers earn for certified grain. Typically $3–$8/bu for corn, $7–$12/bu for soy — but it compresses when organic acreage expands or food companies cut organic sourcing.
+                        </div>
+                        <div class="explainer-tip">💡 A shrinking premium is an early signal of either growing organic supply or weakening demand from manufacturers — often visible here before it shows up in news.</div>
+                    </div>
+                </div>
+                <!-- Deep dive: Futures as benchmark + hedging -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title">⚡ Why Futures Are the Standard for Every Cash Price</div>
+                    <div class="explainer-deep-body">
+                        <p>No matter where corn is grown or sold — Iowa, Illinois, Germany, Brazil — the price negotiation always starts with the CME futures quote. An Illinois elevator offering "$4.40 for corn" is really saying "December futures ($4.60) minus 20 cents basis." The futures price is the anchor; basis is the adjustment.</p>
+                        <p>This matters because it means <strong style="color:var(--text-primary)">a single market in Chicago sets the floor for prices paid to millions of farmers worldwide.</strong> When a drought in the Corn Belt pushes futures up $0.50, every elevator in the country raises its cash bids by roughly that same amount — automatically, within minutes.</p>
+                        <p>Futures also enable <strong style="color:var(--text-primary)">hedging</strong> — the practice of locking in a price before harvest to remove uncertainty. A farmer who planted corn in April and expects to sell in November can sell December corn futures today. If prices fall by harvest, the futures gain offsets the lower cash price. If prices rise, they miss some upside — but they guaranteed their operating margin when they planted. Food companies do the same in reverse, buying futures to lock in input costs.</p>
+                    </div>
+                </div>
+                <!-- Deep dive: Basis examples -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title">📍 Basis in the Real World — Three Scenarios</div>
+                    <div class="basis-examples">
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Strong Basis (River Elevator)</div>
+                            <div class="basis-ex-math">$4.55 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--green)">= −$0.05/bu</div>
+                            <div class="basis-ex-interp">Barge demand is high, the elevator is competing hard for grain. Nearly no discount — a great time to sell physical corn.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Typical Inland Elevator</div>
+                            <div class="basis-ex-math">$4.25 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--gold)">= −$0.35/bu</div>
+                            <div class="basis-ex-interp">Normal range for an elevator 150 miles from the river. Covers trucking, handling, and elevator margin. What you'd see on this chart most of the year.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Weak Basis (Post-Harvest Glut)</div>
+                            <div class="basis-ex-math">$3.85 cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--red)">= −$0.75/bu</div>
+                            <div class="basis-ex-interp">Bins are full, elevators aren't competing for grain. Big discount — farmers who stored their corn and waited for basis to recover are now in the money.</div>
+                        </div>
+                        <div class="basis-ex">
+                            <div class="basis-ex-label">Organic Basis Context</div>
+                            <div class="basis-ex-math">$10.20 org cash − $4.60 futures</div>
+                            <div class="basis-ex-result" style="color:var(--purple)">= +$5.60/bu</div>
+                            <div class="basis-ex-interp">Organic corn trades at a massive positive basis — the organic premium overwhelms the typical negative basis. The premium reflects certification costs, identity preservation, and constrained supply.</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- What moves organic cash -->
+                <div class="explainer-deep">
+                    <div class="explainer-deep-title" style="color:var(--purple);">🌿 What Moves Organic Cash Prices?</div>
+                    <div class="explainer-deep-body">
+                        <p>Organic cash doesn't trade on an exchange — there's no "organic CME." Instead it floats on top of conventional futures as a negotiated premium, pulled in different directions by five forces:</p>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin-top:4px;">
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--gold); font-weight:700; margin-bottom:8px;">① Conventional Futures</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">The floor. No organic seller will take less than what conventional pays. When CME corn rallies, organic follows — but with a lag since it's not traded in real time.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--purple); font-weight:700; margin-bottom:8px;">② Certified Organic Supply</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Less than 1% of US corn acres are certified organic. A bad season hits this tiny pool hard — one drought year can spike the premium significantly. New certified acres take 3 years to come online.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--teal); font-weight:700; margin-bottom:8px;">③ Buyer Demand</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Organic dairies, poultry farms, and food manufacturers are the main buyers. When consumer demand for organic products softens — like during inflation squeezes — these buyers pull back and the premium compresses.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-secondary); font-weight:700; margin-bottom:8px;">④ Import Competition</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Historically a large share of US organic grain was imported from Ukraine, Turkey, and Romania. When import flows are healthy, they cap the domestic premium. Disruptions cause domestic organic to spike.</div>
+                        </div>
+                        <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:8px; padding:14px 16px;">
+                            <div style="font-size:0.68rem; text-transform:uppercase; letter-spacing:0.8px; color:var(--amber, #f0883e); font-weight:700; margin-bottom:8px;">⑤ Certification Costs</div>
+                            <div style="font-size:0.78rem; color:var(--text-primary); line-height:1.6;">Organic certification, transition costs, lower yields, and segregated handling all add real costs for the farmer. The premium must stay high enough to compensate — otherwise acres don't transition.</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px; font-size:0.75rem; color:var(--text-muted); background:var(--bg-primary); border-radius:6px; padding:10px 14px; line-height:1.6; border:1px solid var(--border);">
+                        💡 <strong style="color:var(--text-secondary);">The chart tells the story:</strong> a <span style="color:var(--purple)">rising organic premium</span> means organic supply is tightening or buyer demand is picking up. A <span style="color:var(--purple)">falling premium</span> means more certified supply coming online, softer organic demand, or heavy import competition — even if the underlying futures price is flat.
+                    </div>
+                </div>
+                <!-- Price stack footer -->
+                <div class="explainer-footer">
+                    <div class="explainer-stack">
+                        <span class="explainer-stack-item" style="color:var(--gold)">Futures</span>
+                        <span class="explainer-stack-op">± basis</span>
+                        <span style="color:var(--border)">→</span>
+                        <span class="explainer-stack-item" style="color:var(--teal)">Conv. Cash</span>
+                        <span class="explainer-stack-op">+ organic premium</span>
+                        <span style="color:var(--border)">→</span>
+                        <span class="explainer-stack-item" style="color:var(--purple)">Organic Cash</span>
+                    </div>
+                    <span class="explainer-source">Data: CME Group · USDA AMS · updated daily</span>
+                </div>
+            </div>
+        </div>
+        <div class="main-layout">
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="price-display">
+                        <h2>
+                            <span id="commodityName">Iceberg Lettuce</span>
+                            <span class="shipping-point" id="shippingPoint">Western Arizona</span>
+                        </h2>
+                        <div class="pack-size" id="packSize">24s</div>
+                        <div class="price-row">
+                            <span class="price-value" id="currentPrice">--</span>
+                            <span class="price-change up" id="priceChange" style="display: none;"></span>
+                        </div>
+                        <div class="price-meta" id="priceMeta">Loading...</div>
+                    </div>
+                    <div class="time-controls">
+                        <div class="time-range">
+                            <button class="time-btn" data-days="30">30D</button>
+                            <button class="time-btn active" data-days="60">60D</button>
+                            <button class="time-btn" data-days="90">90D</button>
+                            <button class="time-btn" data-days="180">6M</button>
+                            <button class="time-btn" data-days="365">1Y</button>
+                            <button class="time-btn" data-days="9999">All</button>
+                        </div>
+                        <div class="region-toggle">
+                            <span>Region:</span>
+                            <select id="regionSelect"></select>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="mainChart"></canvas>
+                </div>
+            </div>
+            <div class="sidebar">
+                <div class="sidebar-section-title">Fresh Veg</div>
+                <div class="price-card vegetable active" data-commodity="iceberg" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Iceberg</span><span class="card-badge" id="badge-iceberg"></span></div>
+                    <div class="card-price" id="price-iceberg">--</div>
+                    <div class="card-range">24s</div>
+                    <canvas class="card-sparkline" id="spark-iceberg"></canvas>
+                </div>
+                <div class="price-card vegetable" data-commodity="romaine" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Romaine</span><span class="card-badge" id="badge-romaine"></span></div>
+                    <div class="card-price" id="price-romaine">--</div>
+                    <div class="card-range">24s</div>
+                    <canvas class="card-sparkline" id="spark-romaine"></canvas>
+                </div>
+                <div class="price-card vegetable" data-commodity="hearts" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Romaine Hearts</span><span class="card-badge" id="badge-hearts"></span></div>
+                    <div class="card-price" id="price-hearts">--</div>
+                    <div class="card-range">hearts</div>
+                    <canvas class="card-sparkline" id="spark-hearts"></canvas>
+                </div>
+                <div class="price-card vegetable" data-commodity="broccoli" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Broccoli</span><span class="card-badge" id="badge-broccoli"></span></div>
+                    <div class="card-price" id="price-broccoli">--</div>
+                    <div class="card-range">14s</div>
+                    <canvas class="card-sparkline" id="spark-broccoli"></canvas>
+                </div>
+                <div class="price-card vegetable" data-commodity="cauliflower" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Cauliflower</span><span class="card-badge" id="badge-cauliflower"></span></div>
+                    <div class="card-price" id="price-cauliflower">--</div>
+                    <div class="card-range">12s</div>
+                    <canvas class="card-sparkline" id="spark-cauliflower"></canvas>
+                </div>
+                <div class="price-card vegetable" data-commodity="celery" data-section="vegetables">
+                    <div class="card-header"><span class="card-title">Celery</span><span class="card-badge" id="badge-celery"></span></div>
+                    <div class="card-price" id="price-celery">--</div>
+                    <div class="card-range">24s / hearts</div>
+                    <canvas class="card-sparkline" id="spark-celery"></canvas>
+                </div>
+                <div class="sidebar-section-title">Onions</div>
+                <div class="price-card onion" data-commodity="onion-yellow" data-section="onions">
+                    <div class="card-header"><span class="card-title">Yellow</span><span class="card-badge" id="badge-onion-yellow"></span></div>
+                    <div class="card-price" id="price-onion-yellow">--</div>
+                    <div class="card-range">jumbo</div>
+                    <canvas class="card-sparkline" id="spark-onion-yellow"></canvas>
+                </div>
+                <div class="price-card onion" data-commodity="onion-white" data-section="onions">
+                    <div class="card-header"><span class="card-title">White</span><span class="card-badge" id="badge-onion-white"></span></div>
+                    <div class="card-price" id="price-onion-white">--</div>
+                    <div class="card-range">jumbo</div>
+                    <canvas class="card-sparkline" id="spark-onion-white"></canvas>
+                </div>
+                <div class="price-card onion" data-commodity="onion-red" data-section="onions">
+                    <div class="card-header"><span class="card-title">Red</span><span class="card-badge" id="badge-onion-red"></span></div>
+                    <div class="card-price" id="price-onion-red">--</div>
+                    <div class="card-range">jumbo</div>
+                    <canvas class="card-sparkline" id="spark-onion-red"></canvas>
+                </div>
+                <div class="sidebar-section-title">Berries</div>
+                <div class="price-card berry" data-commodity="strawberries" data-section="berries">
+                    <div class="card-header"><span class="card-title">Strawberries</span><span class="card-badge" id="badge-strawberries"></span></div>
+                    <div class="card-price" id="price-strawberries">--</div>
+                    <div class="card-range" id="range-strawberries">flats</div>
+                    <canvas class="card-sparkline" id="spark-strawberries"></canvas>
+                </div>
+                <div class="price-card berry" data-commodity="raspberries" data-section="berries">
+                    <div class="card-header"><span class="card-title">Raspberries</span><span class="card-badge" id="badge-raspberries"></span></div>
+                    <div class="card-price" id="price-raspberries">--</div>
+                    <div class="card-range" id="range-raspberries">flats</div>
+                    <canvas class="card-sparkline" id="spark-raspberries"></canvas>
+                </div>
+                <div class="price-card berry" data-commodity="blueberries" data-section="berries">
+                    <div class="card-header"><span class="card-title">Blueberries</span><span class="card-badge" id="badge-blueberries"></span></div>
+                    <div class="card-price" id="price-blueberries">--</div>
+                    <div class="card-range" id="range-blueberries">flats</div>
+                    <canvas class="card-sparkline" id="spark-blueberries"></canvas>
+                </div>
+                <div class="price-card berry" data-commodity="blackberries" data-section="berries">
+                    <div class="card-header"><span class="card-title">Blackberries</span><span class="card-badge" id="badge-blackberries"></span></div>
+                    <div class="card-price" id="price-blackberries">--</div>
+                    <div class="card-range" id="range-blackberries">flats</div>
+                    <canvas class="card-sparkline" id="spark-blackberries"></canvas>
+                </div>
+                <div class="market-stats">
+                    <div class="stats-title">Market Overview</div>
+                    <div class="stat-row"><span class="stat-label">Period High</span><span class="stat-value" id="stat-high">--</span></div>
+                    <div class="stat-row"><span class="stat-label">Period Low</span><span class="stat-value" id="stat-low">--</span></div>
+                    <div class="stat-row"><span class="stat-label">Period Avg</span><span class="stat-value" id="stat-avg">--</span></div>
+                    <div class="stat-row"><span class="stat-label">Demand</span><span class="stat-value" id="stat-demand">--</span></div>
+                    <div class="stat-row"><span class="stat-label">Market</span><span class="stat-value" id="stat-trend">--</span></div>
+                </div>
+            </div>
+        </div>
+        <footer>
+            <div class="footer-text">Data: <a href="https://www.ams.usda.gov/mnreports/fvdfob.pdf" target="_blank">USDA AMS FOB Reports</a> • MOSTLY price midpoints</div>
+            <div class="footer-text">Last sync: <span id="lastSync">--</span></div>
+        </footer>
+    </div>
+    <script>
+        const VEGETABLES = {
+            iceberg: { name: 'Iceberg Lettuce', color: '#3fb950', pack: '24s' },
+            romaine: { name: 'Romaine Lettuce', color: '#58a6ff', pack: '24s' },
+            hearts: { name: 'Romaine Hearts', color: '#a371f7', pack: 'hearts' },
+            broccoli: { name: 'Broccoli', color: '#56d364', pack: '14s' },
+            cauliflower: { name: 'Cauliflower', color: '#f0f6fc', pack: '12s' },
+            celery: { name: 'Celery', color: '#7ee787', pack: '24s / hearts' }
+        };
+        const ONIONS = {
+            'onion-yellow': { name: 'Yellow Onions', color: '#d29922', pack: 'jumbo' },
+            'onion-white': { name: 'White Onions', color: '#f0f6fc', pack: 'jumbo' },
+            'onion-red': { name: 'Red Onions', color: '#f85149', pack: 'jumbo' }
+        };
+        // Berries have no fixed pack size (unlike veg/onion) — container varies by
+        // region and season (6-oz cups, 1-lb flats, 1-pint cups, etc.), so `pack`
+        // here is just a fallback label until real data supplies the actual package.
+        const BERRIES = {
+            strawberries: { name: 'Strawberries', color: '#ff5470', pack: 'flats' },
+            raspberries:  { name: 'Raspberries',  color: '#c9184a', pack: 'flats' },
+            blueberries:  { name: 'Blueberries',  color: '#4361ee', pack: 'flats' },
+            blackberries: { name: 'Blackberries', color: '#7209b7', pack: 'flats' }
+        };
+        // ── DYNAMIC REGIONS ─────────────────────────────────────────────────────────
+        // All three dicts start empty and are populated from whatever shipping points
+        // the backend actually logs. No more dropped rows due to unknown regions.
+        const VEG_REGIONS = {};
+        const ONION_REGIONS = {};
+        const BERRY_REGIONS = {};
+        const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=601485202&single=true&output=csv';
+        const BERRIES_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/gviz/tq?tqx=out:json&sheet=Berries';
+        let state = { section: 'vegetables', commodity: 'iceberg', region: 'auto', days: 60, data: {} };
+        let mainChart = null, sparkCharts = {};
+        // ── SEASONAL DEFAULTS ────────────────────────────────────────────────────────
+        // Pattern-match against whatever keys exist in the dynamic dicts.
+        function getCurrentVegSeason() {
+            const m = new Date().getMonth() + 1;
+            const isWinter = [11,12,1,2,3].includes(m);
+            const patterns = isWinter
+                ? ['western-arizona', 'arizona', 'w-az', 'yuma', 'imperial', 'coachella']
+                : ['salinas', 'watsonville', 'santa-maria', 'oxnard'];
+            for (const pat of patterns) {
+                const match = Object.keys(VEG_REGIONS).find(k => k.includes(pat));
+                if (match) return { region: match, label: (isWinter ? 'Winter' : 'Summer') + ' • ' + VEG_REGIONS[match].name };
+            }
+            const fallback = Object.keys(VEG_REGIONS)[0] || 'unknown';
+            return { region: fallback, label: VEG_REGIONS[fallback]?.name || 'No data yet' };
+        }
+        function getCurrentOnionSeason() {
+            const m = new Date().getMonth() + 1;
+            const isSpring = [3,4,5,6].includes(m);
+            const patterns = isSpring
+                ? ['texas', 'georgia', 'vidalia']
+                : ['columbia', 'idaho', 'malheur', 'wisconsin', 'new-york'];
+            for (const [k, v] of Object.entries(ONION_REGIONS)) {
+                if (patterns.some(p => k.includes(p))) {
+                    return { region: k, label: (isSpring ? 'Spring' : 'Storage') + ' • ' + v.name };
+                }
+            }
+            const fallback = Object.keys(ONION_REGIONS)[0] || 'unknown';
+            return { region: fallback, label: ONION_REGIONS[fallback]?.name || 'No data yet' };
+        }
+        // Berry shipping points span CA districts, the Southeast, the Pacific NW,
+        // and Mexico/Peru/Chile/Guatemala imports — too scattered to hardcode a
+        // seasonal pattern list. Instead, default to whichever region most
+        // recently reported a mostly price for the selected commodity.
+        function getCurrentBerrySeason(commodityKey) {
+            const ck = commodityKey || state.commodity;
+            const regionsForCommodity = state.data.berries?.[ck] || {};
+            let best = null, bestDate = '';
+            for (const [k, arr] of Object.entries(regionsForCommodity)) {
+                const last = arr[arr.length - 1];
+                if (last && last.date > bestDate) { bestDate = last.date; best = k; }
+            }
+            if (best) return { region: best, label: 'Latest • ' + BERRY_REGIONS[best]?.name };
+            const fallback = Object.keys(BERRY_REGIONS)[0] || 'unknown';
+            return { region: fallback, label: BERRY_REGIONS[fallback]?.name || 'No data yet' };
+        }
+        function getActiveRegion() {
+            if (state.region !== 'auto') return state.region;
+            const sectionData = state.section === 'vegetables' ? state.data.vegetables : state.section === 'onions' ? state.data.onions : state.data.berries;
+            const regions = state.section === 'vegetables' ? VEG_REGIONS : state.section === 'onions' ? ONION_REGIONS : BERRY_REGIONS;
+            const seasonalRegions = state.section === 'vegetables'
+                ? getCurrentVegSeason().region
+                : state.section === 'onions' ? getCurrentOnionSeason().region : getCurrentBerrySeason().region;
+            // First: try the seasonal default if it has data for THIS commodity
+            if (sectionData?.[state.commodity]?.[seasonalRegions]?.length > 0) return seasonalRegions;
+            // Second: try other seasonal-priority regions in order (winter/summer patterns)
+            const m = new Date().getMonth() + 1;
+            const isWinter = [11,12,1,2,3].includes(m);
+            const seasonalPatterns = state.section === 'vegetables'
+                ? (isWinter ? ['western-arizona','arizona','w-az','yuma','imperial','coachella'] : ['salinas','watsonville','santa-maria','oxnard'])
+                : [];
+            for (const pat of seasonalPatterns) {
+                const match = Object.keys(regions).find(k => k.includes(pat));
+                if (match && sectionData?.[state.commodity]?.[match]?.length > 0) return match;
+            }
+            // Third: fall back to any region that has data for this commodity
+            for (const regionKey of Object.keys(regions)) {
+                if (sectionData?.[state.commodity]?.[regionKey]?.length > 0) return regionKey;
+            }
+            return seasonalRegions;
+        }
+        function getRegions() { return state.section === 'vegetables' ? VEG_REGIONS : state.section === 'onions' ? ONION_REGIONS : BERRY_REGIONS; }
+        function getCommodities() { return state.section === 'vegetables' ? VEGETABLES : state.section === 'onions' ? ONIONS : BERRIES; }
+        function getCommodityColor() { return getCommodities()[state.commodity]?.color || '#3fb950'; }
+        function getSectionData() { return state.section === 'vegetables' ? state.data.vegetables : state.section === 'onions' ? state.data.onions : state.data.berries; }
+        async function fetchData() {
+            if (!SHEET_CSV_URL) return {};
+            try {
+                const jsonUrl = SHEET_CSV_URL.replace('/pub?', '/gviz/tq?tqx=out:json&').replace('&output=csv', '');
+                const response = await fetch(jsonUrl);
+                const text = await response.text();
+                const jsonMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?$/);
+                if (!jsonMatch) return {};
+                return parseGoogleJSON(JSON.parse(jsonMatch[1]));
+            } catch (e) { console.error('Fetch failed:', e); return {}; }
+        }
+        // Berries tab layout: Date, Shipping Point, Commodity, Package, Organic,
+        // Mostly Low, Mostly High, Mostly Avg, Market, Demand. Conventional rows
+        // only for now — organic is logged but not yet broken out in the UI.
+        async function fetchBerryData() {
+            const berryData = {};
+            Object.keys(BERRIES).forEach(c => { berryData[c] = {}; });
+            try {
+                const resp = await fetch(BERRIES_SHEET_URL);
+                const text = await resp.text();
+                const jsonMatch = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?$/);
+                if (!jsonMatch) return berryData;
+                const json = JSON.parse(jsonMatch[1]);
+                if (!json.table?.rows) return berryData;
+                const raw = {};
+                json.table.rows.forEach(row => {
+                    if (!row.c) return;
+                    const vals = row.c.map(cell => cell ? (cell.v !== null ? cell.v : (cell.f || '')) : '');
+                    const [date, point, commodity, pkg, organic, low, high, avg, market, demand] = vals;
+                    if (!date || !commodity || !point) return;
+                    if (String(organic).toUpperCase() === 'YES') return; // conventional only, for now
+                    let dateStr = '';
+                    if (date instanceof Date) {
+                        dateStr = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
+                    } else if (typeof date === 'string') {
+                        const gm = date.match(/Date\((\d+),(\d+),(\d+)\)/);
+                        if (gm) dateStr = gm[1] + '-' + String(+gm[2]+1).padStart(2,'0') + '-' + String(+gm[3]).padStart(2,'0');
+                        else dateStr = date;
+                    }
+                    if (!dateStr || isNaN(new Date(dateStr).getTime())) return;
+                    const uComm = String(commodity).toUpperCase();
+                    const bk = uComm.includes('STRAWBERRIES') ? 'strawberries'
+                             : uComm.includes('RASPBERRIES') ? 'raspberries'
+                             : uComm.includes('BLUEBERRIES') ? 'blueberries'
+                             : uComm.includes('BLACKBERRIES') ? 'blackberries' : null;
+                    if (!bk) return;
+                    const rk = slugify(point), rkName = titleCase(point);
+                    if (!rk) return;
+                    if (!BERRY_REGIONS[rk]) BERRY_REGIONS[rk] = { name: rkName };
+                    if (!raw[bk]) raw[bk] = {};
+                    if (!raw[bk][rk]) raw[bk][rk] = {};
+                    // Last-write-wins per date if more than one package logged same day
+                    raw[bk][rk][dateStr] = { date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'', pkg: pkg||'' };
+                });
+                Object.keys(raw).forEach(c => {
+                    Object.keys(raw[c]).forEach(r => {
+                        berryData[c][r] = Object.keys(raw[c][r]).sort().map(d => raw[c][r][d]);
+                    });
+                });
+            } catch (e) { console.error('Berry data fetch error:', e); }
+            return berryData;
+        }
+        function slugify(str) {
+            return String(str).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        }
+        function titleCase(str) {
+            return String(str).trim().replace(/\b\w/g, c => c.toUpperCase());
+        }
+        function parseGoogleJSON(json) {
+            const data = { vegetables: {}, onions: {} };
+            // Pre-seed commodity keys (regions will be added dynamically)
+            Object.keys(VEGETABLES).forEach(c => { data.vegetables[c] = {}; });
+            Object.keys(ONIONS).forEach(c => { data.onions[c] = {}; });
+            if (!json.table?.rows) return data;
+            json.table.rows.forEach(row => {
+                if (!row.c) return;
+                const vals = row.c.map(cell => cell ? (cell.v !== null ? cell.v : (cell.f || '')) : '');
+                const [date, point, commodity, pkg, low, high, avg, market, demand] = vals;
+                if (!date || !commodity || !point) return;
+                // ── DATE PARSING ──────────────────────────────────────────────────────
+                let dateStr = '';
+                if (date instanceof Date) {
+                    dateStr = date.getFullYear() + '-' + String(date.getMonth()+1).padStart(2,'0') + '-' + String(date.getDate()).padStart(2,'0');
+                } else if (typeof date === 'string') {
+                    const gm = date.match(/Date\((\d+),(\d+),(\d+)\)/);
+                    if (gm) dateStr = gm[1] + '-' + String(+gm[2]+1).padStart(2,'0') + '-' + String(+gm[3]).padStart(2,'0');
+                    else if (date.includes('/')) { const p = date.split('/'); dateStr = p[2] + '-' + p[0].padStart(2,'0') + '-' + p[1].padStart(2,'0'); }
+                    else dateStr = date;
+                } else if (typeof date === 'number') {
+                    dateStr = new Date((date - 25569) * 86400000).toISOString().split('T')[0];
+                }
+                if (!dateStr || isNaN(new Date(dateStr).getTime())) return;
+                // ── DYNAMIC REGION KEY ────────────────────────────────────────────────
+                // Use the raw shipping point string as the region key (slugified).
+                // This means ANY shipping point the backend logs will appear automatically.
+                const rk = slugify(point);
+                const rkName = titleCase(point);
+                if (!rk) return;
+                const uComm = String(commodity).toUpperCase();
+                const uPkg = String(pkg).toUpperCase();
+                if (uComm.includes('ONIONS, DRY')) {
+                    const ok = uComm.includes('YELLOW') ? 'onion-yellow'
+                              : uComm.includes('WHITE') ? 'onion-white'
+                              : uComm.includes('RED') ? 'onion-red' : null;
+                    if (ok) {
+                        if (!ONION_REGIONS[rk]) ONION_REGIONS[rk] = { name: rkName };
+                        if (!data.onions[ok][rk]) data.onions[ok][rk] = [];
+                        data.onions[ok][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    }
+                } else {
+                    const vk = (uComm.includes('ROMAINE') && uPkg.includes('HEART')) ? 'hearts'
+                              : uComm.includes('ICEBERG') ? 'iceberg'
+                              : uComm.includes('ROMAINE') ? 'romaine'
+                              : uComm.includes('BROCCOLI') ? 'broccoli'
+                              : uComm.includes('CAULIFLOWER') ? 'cauliflower'
+                              : uComm.includes('CELERY') ? 'celery' : null;
+                    if (vk) {
+                        if (!VEG_REGIONS[rk]) VEG_REGIONS[rk] = { name: rkName };
+                        if (!data.vegetables[vk][rk]) data.vegetables[vk][rk] = [];
+                        data.vegetables[vk][rk].push({ date: dateStr, low: +low||0, high: +high||0, avg: +avg||0, demand: demand||'', trend: market||'' });
+                    }
+                }
+            });
+            // ── DEDUPLICATE & SORT ────────────────────────────────────────────────────
+            ['vegetables', 'onions'].forEach(sec => {
+                Object.keys(data[sec]).forEach(c => {
+                    Object.keys(data[sec][c]).forEach(r => {
+                        const byDate = {};
+                        data[sec][c][r].forEach(e => { if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
+                        data[sec][c][r] = Object.keys(byDate).sort().map(d => {
+                            const entries = byDate[d];
+                            return {
+                                date: d,
+                                low:  Math.round(entries.reduce((s,e)=>s+e.low, 0)/entries.length*100)/100,
+                                high: Math.round(entries.reduce((s,e)=>s+e.high,0)/entries.length*100)/100,
+                                avg:  Math.round(entries.reduce((s,e)=>s+e.avg, 0)/entries.length*100)/100,
+                                demand: entries[0].demand,
+                                trend:  entries[0].trend
+                            };
+                        });
+                    });
+                });
+            });
+            return data;
+        }
+        function populateRegionDropdown() {
+            const sel = document.getElementById('regionSelect');
+            const regions = getRegions();
+            const season = state.section === 'vegetables' ? getCurrentVegSeason() : state.section === 'onions' ? getCurrentOnionSeason() : getCurrentBerrySeason();
+            sel.innerHTML = '<option value="auto">Auto (' + season.label + ')</option>';
+            Object.entries(regions).forEach(([k, v]) => { sel.innerHTML += '<option value="' + k + '">' + v.name + '</option>'; });
+            sel.value = state.region;
+        }
+        function renderMainChart() {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            const region = getActiveRegion();
+            const sectionData = getSectionData();
+            const commodityData = sectionData?.[state.commodity]?.[region] || [];
+            const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - state.days);
+            const filtered = commodityData.filter(d => d.date && !isNaN(new Date(d.date).getTime()) && new Date(d.date) >= cutoff);
+            if (mainChart) mainChart.destroy();
+            if (filtered.length === 0) {
+                mainChart = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } } });
+                return;
+            }
+            const color = getCommodityColor();
+            const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+            gradient.addColorStop(0, color + '40'); gradient.addColorStop(1, color + '00');
+            mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: filtered.map(d => d.date),
+                    datasets: [
+                        { label: 'Avg', data: filtered.map(d => d.avg), borderColor: color, backgroundColor: gradient, borderWidth: 2.5, fill: true, tension: 0.35, pointRadius: filtered.length === 1 ? 6 : 0, pointHoverRadius: 6, pointBackgroundColor: color },
+                        { label: 'High', data: filtered.map(d => d.high), borderColor: 'rgba(139,148,158,0.4)', borderWidth: 1, borderDash: [5,5], fill: false, tension: 0.35, pointRadius: 0 },
+                        { label: 'Low', data: filtered.map(d => d.low), borderColor: 'rgba(139,148,158,0.4)', borderWidth: 1, borderDash: [5,5], fill: false, tension: 0.35, pointRadius: 0 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { intersect: false, mode: 'index' },
+                    plugins: { legend: { display: false }, tooltip: { backgroundColor: '#21262d', titleColor: '#f0f6fc', bodyColor: '#8b949e', borderColor: '#30363d', borderWidth: 1, padding: 12, displayColors: false,
+                        callbacks: {
+                            title: items => { const x = items?.[0]?.parsed?.x; if (x == null || isNaN(x)) return ''; return new Date(x).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); },
+                            label: item => ['Avg','High','Low'][item.datasetIndex] + ': $' + item.raw.toFixed(2)
+                        }
+                    }},
+                    scales: {
+                        x: { type: 'time', time: { unit: state.days <= 60 ? 'week' : 'month', displayFormats: { week: 'MMM d', month: 'MMM' } }, grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', maxTicksLimit: 8 } },
+                        y: { position: 'right', grid: { color: 'rgba(48,54,61,0.5)', drawBorder: false }, ticks: { color: '#6e7681', callback: v => '$' + v } }
+                    }
+                }
+            });
+        }
+        function renderSparkline(id, dataArr, color) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            const recent = dataArr.slice(-30);
+            if (sparkCharts[id]) sparkCharts[id].destroy();
+            if (recent.length === 0) { sparkCharts[id] = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false } }); return; }
+            sparkCharts[id] = new Chart(ctx, { type: 'line', data: { labels: recent.map(d => d.date), datasets: [{ data: recent.map(d => d.avg), borderColor: color, borderWidth: 1.5, fill: false, tension: 0.4, pointRadius: recent.length === 1 ? 3 : 0 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false } } } });
+        }
+        function updateUI() {
+            const region = getActiveRegion();
+            const regions = getRegions();
+            const commodities = getCommodities();
+            const sectionData = getSectionData();
+            const dataArr = sectionData?.[state.commodity]?.[region] || [];
+            const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
+            document.getElementById('commodityName').textContent = commodities[state.commodity]?.name || state.commodity;
+            document.getElementById('packSize').textContent = (state.section === 'berries' && latest?.pkg) ? latest.pkg : (commodities[state.commodity]?.pack || '');
+            document.getElementById('shippingPoint').textContent = regions[region]?.name || region;
+            const priceEl = document.getElementById('currentPrice'), changeEl = document.getElementById('priceChange'), metaEl = document.getElementById('priceMeta');
+            if (latest) {
+                priceEl.textContent = '$' + latest.avg.toFixed(2); priceEl.className = 'price-value';
+                const cutoffForChange = new Date(); cutoffForChange.setDate(cutoffForChange.getDate() - state.days);
+                const periodForChange = state.days >= 9999 ? dataArr : dataArr.filter(d => new Date(d.date) >= cutoffForChange);
+                const first = periodForChange[0];
+                if (first && first !== latest) {
+                    const change = latest.avg - first.avg, pct = (change / first.avg) * 100;
+                    changeEl.style.display = 'inline-flex';
+                    changeEl.className = 'price-change ' + (change > 0.01 ? 'up' : change < -0.01 ? 'down' : 'flat');
+                    const arrow = change > 0.01 ? '↑' : change < -0.01 ? '↓' : '→';
+                    const label = state.days >= 9999 ? 'all time' : state.days === 1 ? 'day/day' : state.days + 'd';
+                    changeEl.innerHTML = '<span class="change-dollar">' + arrow + ' $' + Math.abs(change).toFixed(2) + '</span><span class="change-pct">' + Math.abs(pct).toFixed(1) + '% ' + label + '</span>';
+                } else changeEl.style.display = 'none';
+                metaEl.textContent = 'Mostly: $' + latest.low.toFixed(2) + ' - $' + latest.high.toFixed(2) + (latest.demand ? ' • ' + latest.demand + ' demand' : '') + (latest.trend ? ' • ' + latest.trend : '');
+                const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - state.days);
+                const period = dataArr.filter(d => d.date && !isNaN(new Date(d.date).getTime()) && new Date(d.date) >= cutoff);
+                if (period.length > 0) {
+                    document.getElementById('stat-high').textContent = '$' + Math.max(...period.map(d => d.high)).toFixed(2);
+                    document.getElementById('stat-low').textContent = '$' + Math.min(...period.map(d => d.low)).toFixed(2);
+                    document.getElementById('stat-avg').textContent = '$' + (period.reduce((s,d) => s + d.avg, 0) / period.length).toFixed(2);
+                    document.getElementById('stat-demand').textContent = latest.demand || '--';
+                    document.getElementById('stat-trend').textContent = latest.trend || '--';
+                }
+            } else {
+                priceEl.textContent = 'No data'; priceEl.className = 'price-value no-data'; changeEl.style.display = 'none';
+                metaEl.textContent = 'No data available for ' + (regions[region]?.name || region);
+                ['stat-high','stat-low','stat-avg','stat-demand','stat-trend'].forEach(id => document.getElementById(id).textContent = '--');
+            }
+            document.getElementById('seasonLabel').textContent = (state.section === 'vegetables' ? getCurrentVegSeason() : state.section === 'onions' ? getCurrentOnionSeason() : state.section === 'berries' ? getCurrentBerrySeason() : { label: '' }).label;
+            document.getElementById('lastSync').textContent = new Date().toLocaleString();
+            renderMainChart();
+        }
+        function updateAllCards() {
+            ['iceberg','romaine','hearts','broccoli','cauliflower','celery'].forEach(c => {
+                let vegRegion = state.section === 'vegetables' ? getActiveRegion() : getCurrentVegSeason().region;
+                let dataArr = state.data.vegetables?.[c]?.[vegRegion] || [];
+                if (dataArr.length === 0) {
+                    for (const rk of Object.keys(VEG_REGIONS)) {
+                        const arr = state.data.vegetables?.[c]?.[rk] || [];
+                        if (arr.length > 0) { dataArr = arr; break; }
+                    }
+                }
+                const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
+                const priceEl = document.getElementById('price-' + c), badgeEl = document.getElementById('badge-' + c);
+                if (latest) {
+                    if (priceEl) priceEl.textContent = '$' + latest.avg.toFixed(2);
+                    if (badgeEl && prev) { const ch = ((latest.avg - prev.avg) / prev.avg) * 100; badgeEl.style.display = 'inline-block'; badgeEl.className = 'card-badge ' + (ch > 0.1 ? 'up' : ch < -0.1 ? 'down' : 'flat'); badgeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%'; }
+                    else if (badgeEl) badgeEl.style.display = 'none';
+                } else { if (priceEl) priceEl.textContent = '--'; if (badgeEl) badgeEl.style.display = 'none'; }
+                renderSparkline('spark-' + c, dataArr, VEGETABLES[c].color);
+            });
+            ['onion-yellow','onion-white','onion-red'].forEach(c => {
+                let onionRegion = state.section === 'onions' ? getActiveRegion() : getCurrentOnionSeason().region;
+                let dataArr = state.data.onions?.[c]?.[onionRegion] || [];
+                if (dataArr.length === 0) {
+                    for (const rk of Object.keys(ONION_REGIONS)) {
+                        const arr = state.data.onions?.[c]?.[rk] || [];
+                        if (arr.length > 0) { dataArr = arr; break; }
+                    }
+                }
+                const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
+                const priceEl = document.getElementById('price-' + c), badgeEl = document.getElementById('badge-' + c);
+                if (latest) {
+                    if (priceEl) priceEl.textContent = '$' + latest.avg.toFixed(2);
+                    if (badgeEl && prev) { const ch = ((latest.avg - prev.avg) / prev.avg) * 100; badgeEl.style.display = 'inline-block'; badgeEl.className = 'card-badge ' + (ch > 0.1 ? 'up' : ch < -0.1 ? 'down' : 'flat'); badgeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%'; }
+                    else if (badgeEl) badgeEl.style.display = 'none';
+                } else { if (priceEl) priceEl.textContent = '--'; if (badgeEl) badgeEl.style.display = 'none'; }
+                renderSparkline('spark-' + c, dataArr, ONIONS[c].color);
+            });
+            ['strawberries','raspberries','blueberries','blackberries'].forEach(c => {
+                let berryRegion = state.section === 'berries' ? getActiveRegion() : getCurrentBerrySeason(c).region;
+                let dataArr = state.data.berries?.[c]?.[berryRegion] || [];
+                if (dataArr.length === 0) {
+                    for (const rk of Object.keys(BERRY_REGIONS)) {
+                        const arr = state.data.berries?.[c]?.[rk] || [];
+                        if (arr.length > 0) { dataArr = arr; break; }
+                    }
+                }
+                const latest = dataArr[dataArr.length - 1], prev = dataArr[dataArr.length - 2];
+                const priceEl = document.getElementById('price-' + c), badgeEl = document.getElementById('badge-' + c), rangeEl = document.getElementById('range-' + c);
+                if (latest) {
+                    if (priceEl) priceEl.textContent = '$' + latest.avg.toFixed(2);
+                    if (rangeEl) rangeEl.textContent = latest.pkg || BERRIES[c].pack;
+                    if (badgeEl && prev) { const ch = ((latest.avg - prev.avg) / prev.avg) * 100; badgeEl.style.display = 'inline-block'; badgeEl.className = 'card-badge ' + (ch > 0.1 ? 'up' : ch < -0.1 ? 'down' : 'flat'); badgeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%'; }
+                    else if (badgeEl) badgeEl.style.display = 'none';
+                } else { if (priceEl) priceEl.textContent = '--'; if (rangeEl) rangeEl.textContent = BERRIES[c].pack; if (badgeEl) badgeEl.style.display = 'none'; }
+                renderSparkline('spark-' + c, dataArr, BERRIES[c].color);
+            });
+        }
+        function switchSection(section) {
+            state.section = section;
+            const isCommodities = section === 'commodities';
+            // Show/hide tab rows
+            document.getElementById('vegTabs').style.display   = section === 'vegetables'  ? 'flex' : 'none';
+            document.getElementById('onionTabs').style.display = section === 'onions'       ? 'flex' : 'none';
+            document.getElementById('berryTabs').style.display = section === 'berries'      ? 'flex' : 'none';
+            document.getElementById('grainTabs').style.display = isCommodities             ? 'flex' : 'none';
+            // Show/hide main vs grain section
+            document.querySelector('.main-layout').style.display   = isCommodities ? 'none'  : 'grid';
+            document.getElementById('grainSection').style.display   = isCommodities ? 'block' : 'none';
+            document.getElementById('grainExplainer').style.display = isCommodities ? 'block' : 'none';
+            // Section button active state
+            document.querySelectorAll('.section-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.section === section));
+            if (isCommodities) {
+                updateGrainUI(); updateGrainCards(); return;
+            }
+            state.region = 'auto';
+            state.commodity = section === 'vegetables' ? 'iceberg' : section === 'onions' ? 'onion-yellow' : 'strawberries';
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('.tab[data-commodity="' + state.commodity + '"]')?.classList.add('active');
+            document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active'));
+            document.querySelector('.price-card[data-commodity="' + state.commodity + '"]')?.classList.add('active');
+            populateRegionDropdown(); updateUI(); updateAllCards();
+        }
+        function setupEvents() {
+            document.querySelectorAll('.section-btn').forEach(btn => btn.addEventListener('click', () => switchSection(btn.dataset.section)));
+            document.querySelectorAll('#vegTabs .tab').forEach(tab => tab.addEventListener('click', () => {
+                document.querySelectorAll('#vegTabs .tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); state.commodity = tab.dataset.commodity;
+                document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active')); document.querySelector('.price-card[data-commodity="' + state.commodity + '"]')?.classList.add('active'); updateUI();
+            }));
+            document.querySelectorAll('#onionTabs .tab').forEach(tab => tab.addEventListener('click', () => {
+                document.querySelectorAll('#onionTabs .tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); state.commodity = tab.dataset.commodity;
+                document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active')); document.querySelector('.price-card[data-commodity="' + state.commodity + '"]')?.classList.add('active'); updateUI();
+            }));
+            document.querySelectorAll('#berryTabs .tab').forEach(tab => tab.addEventListener('click', () => {
+                document.querySelectorAll('#berryTabs .tab').forEach(t => t.classList.remove('active')); tab.classList.add('active'); state.commodity = tab.dataset.commodity;
+                document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active')); document.querySelector('.price-card[data-commodity="' + state.commodity + '"]')?.classList.add('active'); updateUI();
+            }));
+            document.querySelectorAll('.price-card').forEach(card => card.addEventListener('click', () => {
+                const section = card.dataset.section, commodity = card.dataset.commodity;
+                if (state.section !== section) switchSection(section);
+                state.commodity = commodity;
+                const tabContainer = section === 'vegetables' ? '#vegTabs' : section === 'onions' ? '#onionTabs' : '#berryTabs';
+                document.querySelectorAll(tabContainer + ' .tab').forEach(t => t.classList.remove('active'));
+                document.querySelector(tabContainer + ' .tab[data-commodity="' + commodity + '"]')?.classList.add('active');
+                document.querySelectorAll('.price-card').forEach(c => c.classList.remove('active')); card.classList.add('active'); updateUI();
+            }));
+            document.querySelectorAll('.time-btn').forEach(btn => btn.addEventListener('click', () => {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); state.days = parseInt(btn.dataset.days, 10); updateUI();
+            }));
+            document.getElementById('regionSelect').addEventListener('change', e => { state.region = e.target.value; updateUI(); updateAllCards(); });
+        }
+        // ══ GRAIN DATA & LOGIC ═══════════════════════════════════════════════════
+        const GRAINS = {
+            corn: { name: 'Corn', ticker: 'ZC=F', color: '#e3b341', orgColor: '#bc8cff', cashColor: '#39d3bb' },
+            soy:  { name: 'Soybeans', ticker: 'ZS=F', color: '#f0883e', orgColor: '#bc8cff', cashColor: '#39d3bb' }
+        };
+        // Futures: Yahoo Finance proxy | Cash: USDA AMS Grain sheet tab | Organic: USDA Organic Grain sheet tab
+        // Grains sheet gid — update if tab order changes
+        const GRAINS_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/pub?gid=0&single=true&output=csv';
+        async function fetchGrainData() {
+            // Find the Grains tab gid dynamically by fetching the sheet index
+            // Sheet is published — fetch as CSV then parse
+            const grainData = { corn: {}, soy: {} };
+            const raw = { corn: {}, soy: {} };
+            try {
+                // Use gviz JSON endpoint — need to find the correct gid for Grains tab
+                // We'll fetch the CSV directly using the known spreadsheet ID
+                const url = 'https://docs.google.com/spreadsheets/d/1vHq6C9kgA7TANUfR6VBzPVRn6Zr6PTjhawjKNy2pIsY/gviz/tq?tqx=out:json&sheet=Grains';
+                const resp = await fetch(url);
+                const text = await resp.text();
+                // Strip Google's JSONP wrapper
+                const json = JSON.parse(text.replace(/^[^{]*/, '').replace(/[^}]*$/, ''));
+                const rows = json.table.rows;
+                rows.forEach(row => {
+                    const cols = row.c;
+                    if (!cols || !cols[0]) return;
+                    // Col 0: Date, Col 1: Commodity, Col 2: Type, Col 3: Price
+                    const dateVal = cols[0].v; // e.g. "Date(2026,2,8)" or string
+                    const commodity = (cols[1]?.v || '').toLowerCase();
+                    const type      = (cols[2]?.v || '').toLowerCase();
+                    const price     = parseFloat(cols[3]?.v);
+                    if (!dateVal || !commodity || !type || isNaN(price)) return;
+                    // Parse gviz date format "Date(yyyy,m,d)" — month is 0-indexed
+                    let dateStr;
+                    const dm = String(dateVal).match(/Date\((\d+),(\d+),(\d+)\)/);
+                    if (dm) {
+                        dateStr = dm[1] + '-' + String(+dm[2]+1).padStart(2,'0') + '-' + String(dm[3]).padStart(2,'0');
+                    } else {
+                        dateStr = String(dateVal).substring(0, 10);
+                    }
+                    if (commodity !== 'corn' && commodity !== 'soy') return;
+                    if (!raw[commodity][dateStr]) raw[commodity][dateStr] = {};
+                    raw[commodity][dateStr][type] = price;
+                });
+                // Build sorted array for each commodity, merging futures/cash/organic by date
+                ['corn', 'soy'].forEach(g => {
+                    const allDates = Object.keys(raw[g]).sort();
+                    // Forward-fill cash and organic since they update less frequently
+                    let lastCash = null, lastOrg = null;
+                    grainData[g] = allDates.map(date => {
+                        const d = raw[g][date];
+                        if (d.cash    != null) lastCash = d.cash;
+                        if (d.organic != null) lastOrg  = d.organic;
+                        const futures = d.futures ?? null;
+                        const cash    = lastCash;
+                        const organic = lastOrg;
+                        const basis   = (futures != null && cash != null) ? +(cash - futures).toFixed(4) : null;
+                        const orgPrem = (organic != null && cash != null) ? +(organic - cash).toFixed(4) : null;
+                        return { date, futures, cash, organic, basis, orgPrem };
+                    }).filter(d => d.futures != null); // only include days we have futures
+                });
+            } catch(e) {
+                console.error('Grain data fetch error:', e);
+            }
+            return grainData;
+        }
+        let grainData = {};
+        let grainChart = null;
+        let grainState = { grain: 'corn', days: 60 };
+        function getGrainPeriod() {
+            const arr = grainData[grainState.grain] || [];
+            if (grainState.days >= 9999) return arr;
+            const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - grainState.days);
+            return arr.filter(d => new Date(d.date) >= cutoff);
+        }
+        function renderGrainChart() {
+            const ctx = document.getElementById('grainChart').getContext('2d');
+            const period = getGrainPeriod();
+            const g = GRAINS[grainState.grain];
+            if (grainChart) grainChart.destroy();
+            if (!period.length) return;
+            const grad = ctx.createLinearGradient(0,0,0,300);
+            grad.addColorStop(0, g.color + '33'); grad.addColorStop(1, g.color + '00');
+            grainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: period.map(d => d.date),
+                    datasets: [
+                        { label: 'Futures',      data: period.map(d => d.futures), borderColor: g.color,       backgroundColor: grad, borderWidth: 2.5, fill: true,  tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Conv. Cash',   data: period.map(d => d.cash),    borderColor: g.cashColor,   borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Organic Cash', data: period.map(d => d.organic), borderColor: g.orgColor,    borderWidth: 2,   fill: false, tension: 0.35, pointRadius: 0, pointHoverRadius: 5, yAxisID: 'y' },
+                        { label: 'Basis',        data: period.map(d => d.basis),   borderColor: 'rgba(248,81,73,0.7)',   borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y' },
+                        { label: 'Org. Premium', data: period.map(d => d.orgPrem), borderColor: 'rgba(188,140,255,0.6)', borderDash:[4,4], borderWidth:1.5, fill:false, tension:0.35, pointRadius:0, yAxisID:'y' }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { intersect: false, mode: 'index' },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor:'#21262d', titleColor:'#f0f6fc', bodyColor:'#8b949e', borderColor:'#30363d', borderWidth:1, padding:12,
+                            callbacks: {
+                                title: items => new Date(items[0].parsed.x).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}),
+                                label: item => { const labels=['Futures','Conv. Cash','Org. Cash','Basis','Org. Prem']; const v=item.raw; const isSpread=item.datasetIndex>=3; return '  '+labels[item.datasetIndex]+': '+(isSpread?(v>=0?'+$':'-$')+Math.abs(v).toFixed(2):'$'+v.toFixed(2)); }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { type:'time', time:{ unit: grainState.days<=60?'week':'month', displayFormats:{week:'MMM d',month:'MMM yy'} }, grid:{color:'rgba(48,54,61,0.5)'}, ticks:{color:'#6e7681',maxTicksLimit:8} },
+                        y: { position:'right', grid:{color:'rgba(48,54,61,0.4)'}, ticks:{color:'#6e7681', callback:v=>'$'+v.toFixed(2)}, title:{display:true,text:'Price ($/bu)',color:'#6e7681',font:{size:10}} }
+                    }
+                }
+            });
+        }
+        function renderGrainSparkline(id, data, color) {
+            const ctx = document.getElementById(id); if (!ctx) return;
+            if (sparkCharts[id]) sparkCharts[id].destroy();
+            const recent = data.slice(-30);
+            if (!recent.length) return;
+            sparkCharts[id] = new Chart(ctx, { type:'line', data:{ labels:recent.map(d=>d.date), datasets:[{data:recent.map(d=>d.futures), borderColor:color, borderWidth:1.5, fill:false, tension:0.4, pointRadius:0}] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false},tooltip:{enabled:false}}, scales:{x:{display:false},y:{display:false}} } });
+        }
+        function updateGrainUI() {
+            const period = getGrainPeriod();
+            const latest = period[period.length-1], first = period[0];
+            const g = GRAINS[grainState.grain];
+            document.getElementById('grainName').textContent = g.name;
+            document.getElementById('grainSource').textContent = g.ticker + ' · CME';
+            document.getElementById('grainStatsTitle').textContent = g.name + ' · ' + (grainState.days >= 9999 ? 'All Time' : grainState.days + 'D') + ' Stats';
+            if (latest) {
+                document.getElementById('grainPrice').textContent = latest.futures.toFixed(2);
+                document.getElementById('grainMeta').textContent = 'Conv. Cash: $' + (latest.cash).toFixed(2) + '/bu  •  Organic: $' + (latest.organic).toFixed(2) + '/bu  •  Basis: ' + (latest.basis >= 0 ? '+' : '') + (latest.basis*100).toFixed(1) + '¢';
+                // Period change badge
+                if (first && first !== latest) {
+                    const change = latest.futures - first.futures, pct = (change/first.futures)*100;
+                    const arrow = change > 0 ? '↑' : '↓';
+                    const label = grainState.days >= 9999 ? 'all time' : grainState.days + 'd';
+                    const changeEl = document.getElementById('grainChange');
+                    changeEl.style.display = 'inline-flex';
+                    changeEl.className = 'price-change ' + (change > 0 ? 'up' : 'down');
+                    changeEl.innerHTML = '<span class="change-dollar">' + arrow + ' $' + Math.abs(change).toFixed(2) + '</span><span class="change-pct">' + Math.abs(pct).toFixed(1) + '% ' + label + '</span>';
+                } else { document.getElementById('grainChange').style.display = 'none'; }
+                // Spread cards
+                document.getElementById('basisValue').textContent = (latest.basis >= 0 ? '+$' : '-$') + Math.abs(latest.basis).toFixed(2);
+                document.getElementById('basisExplain').textContent = latest.basis < 0 ? 'Illinois cash trading ' + (Math.abs(latest.basis)*100).toFixed(0) + '¢ below CME futures. Weak basis — farmers may hold and wait.' : 'Illinois cash trading above CME futures. Strong basis — good time to sell.';
+                document.getElementById('orgPremValue').textContent = '+$' + latest.orgPrem.toFixed(2);
+                document.getElementById('orgPremExplain').textContent = 'Organic fetching ' + ((latest.orgPrem/latest.cash)*100).toFixed(0) + '% above conventional cash.';
+                // Stats
+                document.getElementById('gstat-high').textContent = '$' + Math.max(...period.map(d=>d.futures)).toFixed(2);
+                document.getElementById('gstat-low').textContent  = '$' + Math.min(...period.map(d=>d.futures)).toFixed(2);
+                document.getElementById('gstat-cash').textContent   = '$' + (period.reduce((s,d)=>s+d.cash,0)/period.length).toFixed(2);
+                document.getElementById('gstat-basis').textContent  = (period.reduce((s,d)=>s+d.basis,0)/period.length < 0 ? '-$' : '+$') + Math.abs(period.reduce((s,d)=>s+d.basis,0)/period.length).toFixed(2);
+                document.getElementById('gstat-org').textContent    = '$' + (period.reduce((s,d)=>s+d.organic,0)/period.length).toFixed(2);
+                document.getElementById('gstat-orgprem').textContent= '+$' + (period.reduce((s,d)=>s+d.orgPrem,0)/period.length).toFixed(2);
+            }
+            renderGrainChart();
+        }
+        function updateGrainCards() {
+            ['corn','soy'].forEach(g => {
+                const arr = grainData[g] || [];
+                const latest = arr[arr.length-1], prev = arr[arr.length-2];
+                const col = GRAINS[g].color;
+                if (latest) {
+                    document.getElementById('grain-price-'+g).textContent = '$' + latest.futures.toFixed(2);
+                    document.getElementById('grain-cash-'+g).textContent  = '$' + latest.cash.toFixed(2);
+                    document.getElementById('grain-basis-'+g).textContent = (latest.basis>=0?'+$':'-$') + Math.abs(latest.basis).toFixed(2);
+                    document.getElementById('grain-org-'+g).textContent   = '$' + latest.organic.toFixed(2);
+                    document.getElementById('grain-orgprem-'+g).textContent = '+$' + latest.orgPrem.toFixed(2);
+                    if (prev) {
+                        const ch = ((latest.futures-prev.futures)/prev.futures)*100;
+                        const badgeEl = document.getElementById('grain-badge-'+g);
+                        badgeEl.style.display = 'inline-block';
+                        badgeEl.className = 'card-badge ' + (ch > 0.1 ? 'up' : ch < -0.1 ? 'down' : 'flat');
+                        badgeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(1) + '%';
+                    }
+                }
+                renderGrainSparkline('grain-spark-'+g, arr, col);
+            });
+        }
+        function setupGrainEvents() {
+            document.querySelectorAll('#grainTabs .tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('#grainTabs .tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    grainState.grain = tab.dataset.grain;
+                    document.querySelectorAll('.grain-card').forEach(c => c.classList.remove('active'));
+                    document.querySelector('.grain-card[data-grain="'+grainState.grain+'"]')?.classList.add('active');
+                    updateGrainUI();
+                });
+            });
+            document.querySelectorAll('.grain-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    grainState.grain = card.dataset.grain;
+                    document.querySelectorAll('#grainTabs .tab').forEach(t => t.classList.remove('active'));
+                    document.querySelector('#grainTabs .tab[data-grain="'+grainState.grain+'"]')?.classList.add('active');
+                    document.querySelectorAll('.grain-card').forEach(c => c.classList.remove('active'));
+                    card.classList.add('active');
+                    updateGrainUI();
+                });
+            });
+            document.querySelectorAll('#grainTimeRange .time-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('#grainTimeRange .time-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    grainState.days = parseInt(btn.dataset.days, 10);
+                    updateGrainUI();
+                });
+            });
+        }
+        async function init() {
+            state.data = await fetchData();
+            console.log('Loaded regions (veg):', Object.keys(VEG_REGIONS));
+            console.log('Loaded regions (onion):', Object.keys(ONION_REGIONS));
+            state.data.berries = await fetchBerryData();
+            console.log('Loaded regions (berries):', Object.keys(BERRY_REGIONS));
+            grainData = await fetchGrainData();
+            populateRegionDropdown(); setupEvents(); setupGrainEvents();
+            updateUI(); updateAllCards(); updateGrainCards();
+        }
+        init();
+    </script>
+</body>
+</html>
